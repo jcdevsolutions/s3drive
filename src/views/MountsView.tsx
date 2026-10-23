@@ -337,12 +337,12 @@ export default function MountsView() {
             </Field>
           </div>
 
-          <Field label="Bucket folder" hint={selectedRemote ? `${draft.remote}:${draft.remotePath}` : undefined}>
+          <Field label="Bucket and folder" hint={selectedRemote ? `${draft.remote}:${draft.remotePath}` : undefined}>
             <div className="input-row">
               <input
                 className="input mono"
                 value={draft.remotePath}
-                placeholder="path/inside/bucket (empty = whole bucket)"
+                placeholder="bucket/optional/folder (empty = all buckets)"
                 onChange={(event) => update({ remotePath: event.target.value })}
               />
               <button

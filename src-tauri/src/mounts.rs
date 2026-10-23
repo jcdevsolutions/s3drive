@@ -125,6 +125,28 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
         (mount, program, args)
     };
 
+    // rclone mounts a missing bucket without complaint and then fails every write,
+    // so check that the bucket (first path segment) exists. Network errors fall through.
+    if let Some(bucket) = mount
+        .remote_path
+        .trim()
+        .trim_matches('/')
+        .split('/')
+        .next()
+        .filter(|b| !b.is_empty())
+    {
+        let context = app.state::<AppContext>();
+        let probe = rclone::browse_args(&mount.remote, bucket, &context.paths.conf_arg());
+        if let Err(error) = context.rclone().captured(&probe).await {
+            if error.to_lowercase().contains("directory not found") {
+                return Err(format!(
+                    "Bucket '{bucket}' does not exist on '{}'. The folder path must start with the bucket name, e.g. my-bucket/photos.",
+                    mount.remote
+                ));
+            }
+        }
+    }
+
     // Claim the mount before spawning: check and insert under one lock guard, so two
     // concurrent starts cannot both create a child for the same mount point.
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
