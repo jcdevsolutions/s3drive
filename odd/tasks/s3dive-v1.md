@@ -188,3 +188,18 @@ L12 (native review of core+shell: APPROVED):
   `subagents.json` `model_profiles`, not `profiles.json` `active`). Role slots use the fixed
   keys `review-refuter` and `review-validator`, so those need entries too. Selection format is
   `provider/id`, e.g. `deepseek/deepseek-v4-pro`.
+
+L13 (post-delivery fix: corrupted Linux window):
+- User report: `tauri dev` showed the window as corrupted horizontal bands. Reproduced live
+  with `xwd` on the GTK window; the rest of the desktop rendered fine, so the React/CSS layer
+  and the core were never implicated.
+- Root cause: WebKitGTK 2.52.6 DMA-BUF renderer on X11 with the NVIDIA GT 730 running nouveau
+  (Mesa 25.2.8). Relaunching with `WEBKIT_DISABLE_DMABUF_RENDERER=1` rendered the UI pixel
+  perfect, which isolated the fault to the webview.
+- Fix commit `4b45bd2`: `apply_linux_webkit_defaults()` in `src-tauri/src/lib.rs` defaults the
+  variable before the webview exists (Linux only, external value respected, `=0` opts back in),
+  plus a Troubleshooting row in `README.md`.
+- Evidence: `cargo check` and `cargo clippy -D warnings` on the shell clean; `tauri dev` launched
+  with `env -u WEBKIT_DISABLE_DMABUF_RENDERER` still rendered correctly, proving the binary
+  applies the default itself. No automated test: the failure is a driver-level rasterization
+  defect, not observable through the app's public interface.
