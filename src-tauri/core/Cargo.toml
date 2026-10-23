@@ -1,0 +1,15 @@
+[package]
+name = "s3dive-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Tauri-free core logic for S3Dive: rclone model, argument builders, config file editing"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"
