@@ -23,6 +23,48 @@ pub fn version_args() -> Vec<String> {
     vec!["version".to_string()]
 }
 
+/// Split one user-entered flag line into the argv elements it stands for.
+///
+/// rclone reads one element per argument, so `--transfers 8` has to reach it as two
+/// elements, never as one. Quotes group a value so a path with spaces survives, and a
+/// token that already carries `=` stays a single element.
+pub fn split_flag_line(line: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut started = false;
+
+    for ch in line.chars() {
+        match quote {
+            Some(open) => {
+                if ch == open {
+                    quote = None;
+                } else {
+                    current.push(ch);
+                }
+            }
+            None => {
+                if ch == '"' || ch == '\'' {
+                    quote = Some(ch);
+                    started = true;
+                } else if ch.is_whitespace() {
+                    if started {
+                        tokens.push(std::mem::take(&mut current));
+                        started = false;
+                    }
+                } else {
+                    current.push(ch);
+                    started = true;
+                }
+            }
+        }
+    }
+    if started {
+        tokens.push(current);
+    }
+    tokens
+}
+
 fn base_args(config_path: &str, settings: &Settings) -> Vec<String> {
     let mut args = vec![CONFIG_FLAG.to_string(), config_path.to_string()];
     if let Some(limit) = settings
@@ -35,9 +77,20 @@ fn base_args(config_path: &str, settings: &Settings) -> Vec<String> {
         args.push(limit.to_string());
     }
     for flag in &settings.default_flags {
-        let flag = flag.trim();
-        if !flag.is_empty() {
-            args.push(flag.to_string());
+        let mut tokens = split_flag_line(flag).into_iter().peekable();
+        while let Some(token) = tokens.next() {
+            // S3Dive owns the config path. `save_settings` already refuses a config
+            // flag, but a state file edited by hand must not redirect rclone to a
+            // different config either. A bare `--config` takes the next token as
+            // its value, so both are dropped.
+            if token == CONFIG_FLAG {
+                tokens.next();
+                continue;
+            }
+            if token.starts_with("--config=") {
+                continue;
+            }
+            args.push(token);
         }
     }
     args
@@ -392,15 +445,58 @@ mod tests {
 
         let args = transfer_args(&job, &settings, CONFIG, TransferOptions::default());
         assert_eq!(
-            &args[0..6],
+            &args[0..7],
             [
                 "--config",
                 CONFIG,
                 "--bwlimit",
                 "8M",
-                "--transfers 8",
+                "--transfers",
+                "8",
                 "copy"
             ]
+        );
+    }
+
+    #[test]
+    fn extra_flags_reach_rclone_as_separate_arguments() {
+        let job = Job::new("Docs", JobKind::Copy, "media", "docs", "/home/me/docs");
+        let settings = Settings {
+            rclone_path: None,
+            default_flags: vec!["--transfers 8".into()],
+            bandwidth_limit: None,
+        };
+
+        let args = transfer_args(&job, &settings, CONFIG, TransferOptions::default());
+
+        assert!(args.contains(&"--transfers".to_string()), "{args:?}");
+        assert!(args.contains(&"8".to_string()), "{args:?}");
+        assert!(!args.contains(&"--transfers 8".to_string()), "{args:?}");
+    }
+
+    #[test]
+    fn an_extra_flag_cannot_redirect_the_config_path() {
+        let job = Job::new("Docs", JobKind::Copy, "media", "docs", "/home/me/docs");
+        let settings = Settings {
+            default_flags: vec![
+                "--config=/etc/rclone.conf".into(),
+                "--config /etc/rclone.conf".into(),
+                "--transfers".into(),
+            ],
+            ..Settings::default()
+        };
+
+        let args = transfer_args(&job, &settings, CONFIG, TransferOptions::default());
+
+        assert_eq!(args[0], "--config");
+        assert_eq!(args[1], CONFIG, "the app config path was replaced");
+        assert!(
+            !args.iter().any(|arg| arg.starts_with("--config=")),
+            "{args:?}"
+        );
+        assert!(
+            !args.iter().any(|arg| arg == "/etc/rclone.conf"),
+            "the value of a refused --config survived as a positional argument: {args:?}"
         );
     }
 
@@ -530,5 +626,21 @@ mod tests {
     #[test]
     fn version_probe_uses_the_version_subcommand() {
         assert_eq!(version_args(), vec!["version"]);
+    }
+
+    #[test]
+    fn a_flag_line_splits_into_the_arguments_it_stands_for() {
+        assert_eq!(split_flag_line("--transfers 8"), vec!["--transfers", "8"]);
+        assert_eq!(split_flag_line("--transfers=8"), vec!["--transfers=8"]);
+        assert_eq!(
+            split_flag_line("--log-file \"my file.log\""),
+            vec!["--log-file", "my file.log"]
+        );
+        assert_eq!(
+            split_flag_line("--log-file 'my file.log'"),
+            vec!["--log-file", "my file.log"]
+        );
+        assert!(split_flag_line("   ").is_empty());
+        assert_eq!(split_flag_line("--transfers\t8"), vec!["--transfers", "8"]);
     }
 }

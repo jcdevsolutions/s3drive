@@ -1,6 +1,7 @@
 //! Validation of user input before it reaches rclone or the filesystem.
 
 use crate::model::{AppState, Job, Mount, Remote};
+use crate::rclone::{split_flag_line, CONFIG_FLAG};
 use std::path::{Component, Path, PathBuf};
 
 const MAX_NAME: usize = 64;
@@ -139,6 +140,32 @@ fn normalize(path: &Path) -> PathBuf {
 fn comparable(path: &Path) -> PathBuf {
     let normalized = normalize(path);
     std::fs::canonicalize(&normalized).unwrap_or(normalized)
+}
+
+/// Every extra flag is appended to every rclone call, so each line must be a flag.
+///
+/// S3Dive owns the rclone config file, so `--config` is refused: the user would
+/// silently point rclone at a different config than the one the app manages.
+pub fn extra_flags(flags: &[String]) -> Result<(), String> {
+    for line in flags {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let tokens = split_flag_line(trimmed);
+        let first = tokens.first().map(String::as_str).unwrap_or_default();
+        if !first.starts_with('-') {
+            return Err(format!(
+                "'{trimmed}' is not an rclone flag. Extra flags must start with '-' (for example --transfers 8)."
+            ));
+        }
+        if first == CONFIG_FLAG || first.starts_with("--config=") {
+            return Err(format!(
+                "'{first}' cannot be an extra flag: S3Dive chooses the rclone config file."
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_remote(remote: &Remote) -> Result<(), String> {
@@ -412,6 +439,32 @@ mod tests {
             assert!(error.contains("filesystem root"), "{spelling}: {error}");
         }
         assert!(mount_point("/mnt/media").is_ok());
+    }
+
+    #[test]
+    fn extra_flags_must_start_with_a_dash() {
+        assert!(extra_flags(&[]).is_ok());
+        assert!(extra_flags(&["".into()]).is_ok());
+        assert!(extra_flags(&["   ".into()]).is_ok());
+        assert!(extra_flags(&["--transfers".into()]).is_ok());
+        assert!(extra_flags(&["--transfers 8".into()]).is_ok());
+
+        let error = extra_flags(&["transfers 8".into()]).unwrap_err();
+        assert_eq!(
+            error,
+            "'transfers 8' is not an rclone flag. Extra flags must start with '-' (for example --transfers 8)."
+        );
+    }
+
+    #[test]
+    fn extra_flags_cannot_replace_the_config_file() {
+        let error = extra_flags(&["--config /etc/rclone.conf".into()]).unwrap_err();
+        assert!(error.contains("--config"), "{error}");
+        assert!(error.contains("config file"), "{error}");
+
+        let error = extra_flags(&["--config=/etc/rclone.conf".into()]).unwrap_err();
+        assert!(error.contains("--config"), "{error}");
+        assert!(error.contains("config file"), "{error}");
     }
 
     #[test]

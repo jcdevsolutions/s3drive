@@ -17,9 +17,10 @@ pub use model::{
     S3Provider, Settings, VfsCacheMode, STATE_VERSION,
 };
 pub use platform::{fuse_status, Os};
-pub use rclone::{RemoteEntry, TransferOptions};
+pub use rclone::{split_flag_line, RemoteEntry, TransferOptions};
 pub use rclone_conf::remote_pairs;
 pub use remotes::{apply_remote_update, plan_remote_update, PlannedRemote};
 pub use store::{load_state, save_state, StoreError};
+pub use validate::extra_flags;
 
 pub const APP_NAME: &str = "S3Dive";

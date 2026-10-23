@@ -2,11 +2,11 @@
 
 Objective: fix the defects and architectural gaps found in the code-quality and
 architecture review of S3Dive, in priority order (P0 → P3).
-Branch: `fix/review-findings` (from `main`).
-Test runner: `cargo test --manifest-path src-tauri/core/Cargo.toml` (headless),
-`cargo test --manifest-path src-tauri/Cargo.toml` (shell, needs the Tauri sysroot),
-`pnpm typecheck` / `pnpm build` (frontend). Delivery strategy: work-unit commits on the
-feature branch; PR creation stays the user's decision.
+Branch: `fix/review-findings` (work unit 1). Delivery strategy:
+`chain_strategy=feature-branch-chain` — one branch per work unit, stacked on the previous
+one; PR creation stays the user's decision. Test runner: `cargo test --manifest-path
+src-tauri/core/Cargo.toml` (headless), `cargo test --manifest-path src-tauri/Cargo.toml`
+(shell, needs the Tauri sysroot), `pnpm typecheck` / `pnpm build` (frontend).
 
 ## Specs
 
@@ -46,17 +46,18 @@ feature branch; PR creation stays the user's decision.
   `RcloneInfo.source` must cross the IPC boundary as typed values instead of debug strings; the
   redundant `src-tauri/core/Cargo.lock` must go; dead API (`Remote::spec`,
   `JobKind::requires_direction`) must be removed or used.
-- S10 (assumption, needs the user's decision): jobs and mounts should reference a remote by its
-  `id` instead of by its mutable name, so renaming a bucket cannot silently retarget a transfer.
-  This changes the persisted `state.json` format and therefore needs the user's decision; it is
-  not started until the decision is taken.
+- S10 (accepted, user decision 2026-10-23): jobs and mounts must reference a remote by its
+  `id` instead of by its mutable name, so renaming a bucket cannot silently retarget a
+  transfer. The persisted `state.json` format changes, so the state file needs a migration and
+  a new schema version. A job or mount whose remote no longer exists must be reported, not
+  silently re-pointed.
 
 ## Tasks
 
 | ID | Spec | Route | Commit | Status |
 | --- | --- | --- | --- | --- |
-| T1 | S2 | inline | pending | done: core identity API (`plan_remote_update` / `apply_remote_update`) + `ensure_ids` repair on load + 7 core tests |
-| T2 | S2 | inline | pending | done: `save_remote` / `delete_remote` wiring + 3 shell tests |
+| T1 | S2 | inline | 5c7665e, eeef3a0 | done: core identity API (`plan_remote_update` / `apply_remote_update`) + `ensure_ids` repair on load + 7 core tests |
+| T2 | S2 | inline | eeef3a0 | done: `save_remote` / `delete_remote` wiring + 3 shell tests |
 | T3 | S3 | inline | pending | pending: core flag tokenizer + `base_args` + core tests |
 | T4 | S3 | inline | pending | pending: Settings validation, UI hint, README wording |
 | T5 | S4 | inline | pending | pending: keep the pid in the registry until the child is dead |
@@ -65,7 +66,9 @@ feature branch; PR creation stays the user's decision.
 | T8 | S7 | inline | pending | pending: reject control characters in the secret |
 | T9 | S8 | inline | pending | pending: labels associated + modal focus trap |
 | T10 | S9 | inline | pending | pending: P3 cleanups |
-| T11 | S10 | inline | n/a | blocked: waits on the user's decision about the `state.json` schema migration |
+| T11 | S10 | inline | pending | pending: `remoteId` on jobs and mounts, schema v2 + migration in the core |
+| T12 | S10 | inline | pending | pending: commands and rclone arg builders resolve the remote by id |
+| T13 | S10 | inline | pending | pending: the UI sends and shows `remoteId` instead of the name |
 
 ## Log
 
@@ -106,3 +109,37 @@ L5 (work unit 1 — remote identity, RED → GREEN):
 L6 (decision, deferred): jobs and mounts still reference a remote by name, so a rename has to
 rewrite them. S10 changes that to an id reference and therefore changes the persisted format;
 it waits for the user's decision (T11).
+
+L7 (user decisions, 2026-10-23):
+
+- Delivery: "Rama por feature encadenada" — `chain_strategy=feature-branch-chain`. One branch
+  per work unit, stacked on the previous one. Slice boundaries: `main` → `fix/review-findings`
+  (work unit 1, remote identity) → `fix/extra-flags` (work unit 2) → `fix/process-lifecycle`
+  (work unit 3) → `fix/remote-references` (work unit 4, the S10 migration) →
+  `fix/validation-and-a11y` (work unit 5) → `fix/cleanup` (work unit 6).
+- Migration: "Sí, migrar ahora" — S10 is accepted. Jobs and mounts reference a remote by id;
+  `state.json` gets a new schema version and a migration. T11-T13 replace the blocked task.
+
+L8 (work unit 1, delivered): 625 authored lines in two commits (`5c7665e` rustfmt,
+`eeef3a0` the fix). Past the ~400-line slice, so the chain strategy applies from the next
+commit.
+
+L9 (design for work units 3 and 4, decided while work unit 2 was in flight):
+
+- T5 (S4): `RunEntry.cancel` and `MountEntry.cancel` become `Option<oneshot::Sender<()>>`.
+  `cancel`/`stop` take the sender out of the entry but leave the entry in the registry, so
+  the pid stays killable until the supervisor sees the child exit and removes it. The
+  supervisor already removes the entry when the child is gone, so nothing else changes.
+- T6 (S5): one helper writes the config file and the state together. The config is written
+  first; when the state write fails, the previous config content is written back and the
+  error says so if that rollback also fails. Applied to `save_remote` and `delete_remote`.
+- T7 (S6): `store::temp_path` gets a per-write counter (an `AtomicU64` plus the pid)
+  instead of the pid alone, so two concurrent writes never share a temporary file.
+- T11-T13 (S10): `Job` and `Mount` carry `remote_id` instead of the remote name. The
+  pre-v2 `remote` name stays as a read-only `#[serde(default, rename = "remote",
+  skip_serializing)]` field, used only to resolve the id when an old state file is loaded;
+  `STATE_VERSION` goes to 2 and `load_state` performs the migration. A reference whose
+  remote no longer exists keeps an empty `remote_id` and is reported, never re-pointed.
+  `transfer_args` and `mount_args` take the remote name as an argument, because the job no
+  longer carries it. `apply_remote_update` loses the rename rewrite: with ids, a rename
+  cannot move a job.

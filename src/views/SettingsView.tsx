@@ -129,7 +129,10 @@ export default function SettingsView() {
               onChange={(event) => setBandwidth(event.target.value)}
             />
           </Field>
-          <Field label="Extra flags" hint="One flag per line, applied to every rclone call.">
+          <Field
+            label="Extra flags"
+            hint="One flag per line. A value may follow on the same line. Applied to every sync, copy, bisync and mount."
+          >
             <textarea
               className="input input--area mono"
               rows={3}

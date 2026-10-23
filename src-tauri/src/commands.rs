@@ -109,13 +109,7 @@ pub async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<App
         .filter(|flag| !flag.is_empty())
         .collect();
 
-    for flag in &settings.default_flags {
-        if !flag.starts_with('-') {
-            return Err(format!(
-                "'{flag}' is not an rclone flag. Extra flags must start with '-' (for example --transfers 8)."
-            ));
-        }
-    }
+    validate::extra_flags(&settings.default_flags)?;
 
     let (_, snapshot) = context.mutate(|state| {
         state.settings = settings;

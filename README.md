@@ -48,7 +48,7 @@ failing at mount time. Sync and copy jobs work with rclone alone.
 3. **Mounts → New mount.** Pick an **existing, empty** local directory as the mount point.
    Toggle *Auto-mount when S3Dive starts*, then enable *Start S3Dive at login*.
 4. **Settings.** Override the rclone binary, set a bandwidth limit (`--bwlimit`) and extra
-   flags applied to every rclone call.
+   flags, one per line, applied to every sync, copy, bisync and mount.
 
 ## How auto-mount survives a reboot
 
