@@ -136,7 +136,11 @@ fn s2_kept_secret_survives_a_rename_and_a_second_save() {
     store::write_private_file(&path, &renamed).expect("save after rename");
 
     let after_rename = fs::read_to_string(&path).expect("read conf");
-    assert_eq!(secret_of(&after_rename, "probe-renamed"), SECRET, "{after_rename}");
+    assert_eq!(
+        secret_of(&after_rename, "probe-renamed"),
+        SECRET,
+        "{after_rename}"
+    );
     assert!(
         rclone_conf::get_section(&after_rename, "probe").is_none(),
         "the old section must be gone: {after_rename}"
@@ -150,7 +154,11 @@ fn s2_kept_secret_survives_a_rename_and_a_second_save() {
     store::write_private_file(&path, &resaved).expect("second save");
 
     let after_resave = fs::read_to_string(&path).expect("read conf");
-    assert_eq!(secret_of(&after_resave, "probe-renamed"), SECRET, "{after_resave}");
+    assert_eq!(
+        secret_of(&after_resave, "probe-renamed"),
+        SECRET,
+        "{after_resave}"
+    );
     assert_private_mode(&path);
 }
 
@@ -172,13 +180,22 @@ fn s3_no_rclone_argument_vector_carries_the_secret() {
     let settings = Settings::default();
 
     let vectors = [
-        ("test_remote_args", rclone::test_remote_args(&remote.name, &config)),
-        ("browse_args", rclone::browse_args(&remote.name, "bucket/prefix", &config)),
+        (
+            "test_remote_args",
+            rclone::test_remote_args(&remote.name, &config),
+        ),
+        (
+            "browse_args",
+            rclone::browse_args(&remote.name, "bucket/prefix", &config),
+        ),
         (
             "transfer_args",
             rclone::transfer_args(&job, &settings, &config, rclone::TransferOptions::default()),
         ),
-        ("mount_args", rclone::mount_args(&mount, &settings, &config, &Os::Linux)),
+        (
+            "mount_args",
+            rclone::mount_args(&mount, &settings, &config, &Os::Linux),
+        ),
         ("version_args", rclone::version_args()),
     ];
 
@@ -188,7 +205,10 @@ fn s3_no_rclone_argument_vector_carries_the_secret() {
             assert!(!arg.contains(SECRET), "{label} carries the secret: {arg}");
         }
         let joined = args.join(" ");
-        assert!(!joined.contains(SECRET), "{label} carries the secret: {joined}");
+        assert!(
+            !joined.contains(SECRET),
+            "{label} carries the secret: {joined}"
+        );
         // `secret_access_key` may only ever appear as a config *key* inside the file.
         assert!(
             !joined.contains("secret_access_key"),
@@ -219,7 +239,10 @@ fn s3_state_json_never_contains_the_secret() {
     state.remotes.push(remote);
 
     let json = serde_json::to_string(&state).expect("serialize");
-    assert!(!json.contains(SECRET), "state json carries the secret: {json}");
+    assert!(
+        !json.contains(SECRET),
+        "state json carries the secret: {json}"
+    );
     assert!(
         !json.to_lowercase().contains("secret"),
         "state json has a secret field: {json}"
@@ -230,7 +253,10 @@ fn s3_state_json_never_contains_the_secret() {
     let path = dir.path().join("state.json");
     store::save_state(&path, &state).expect("save state");
     let on_disk = fs::read_to_string(&path).expect("read state");
-    assert!(!on_disk.contains(SECRET), "state file carries the secret: {on_disk}");
+    assert!(
+        !on_disk.contains(SECRET),
+        "state file carries the secret: {on_disk}"
+    );
     assert!(
         !on_disk.to_lowercase().contains("secret"),
         "state file has a secret field: {on_disk}"
