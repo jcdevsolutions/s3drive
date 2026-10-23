@@ -1,6 +1,6 @@
 //! Mount supervision: one long-lived rclone child per mount, plus auto-mount at launch.
 
-use crate::context::{AppContext, MountEntry, MountRuntime};
+use crate::context::{AppContext, LockExt, MountEntry, MountRuntime};
 use s3dive_core::model::{now_ms, Mount};
 use s3dive_core::rclone;
 use s3dive_core::validate;
@@ -137,7 +137,7 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
     };
     {
         let context = app.state::<AppContext>();
-        let mut live = context.mounts.lock().expect("mount lock poisoned");
+        let mut live = context.mounts.lock_recover();
         if live.contains_key(&mount.id) {
             return Err(format!("'{}' is already mounted.", mount.name));
         }
@@ -160,11 +160,7 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
         Ok(child) => child,
         Err(error) => {
             let context = app.state::<AppContext>();
-            context
-                .mounts
-                .lock()
-                .expect("mount lock poisoned")
-                .remove(&mount.id);
+            context.mounts.lock_recover().remove(&mount.id);
             return Err(format!("Cannot start rclone mount: {error}"));
         }
     };
@@ -181,12 +177,24 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
         started_at_ms: Some(now_ms()),
     };
 
-    {
+    // The claim can disappear between the spawn and this update when the user cancels a
+    // mount that was still starting. That child would then be owned by nobody, so kill it.
+    let still_claimed = {
         let context = app.state::<AppContext>();
-        let mut live = context.mounts.lock().expect("mount lock poisoned");
-        if let Some(entry) = live.get_mut(&mount.id) {
-            entry.runtime = runtime.clone();
+        let mut live = context.mounts.lock_recover();
+        match live.get_mut(&mount.id) {
+            Some(entry) => {
+                entry.runtime = runtime.clone();
+                true
+            }
+            None => false,
         }
+    };
+    if !still_claimed {
+        if let Some(pid) = pid {
+            crate::runner::kill_process(pid);
+        }
+        return Err(format!("'{}' was cancelled while starting.", mount.name));
     }
     emit_change(&app, &runtime);
 
@@ -254,11 +262,7 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
         };
 
         let context = watch_app.state::<AppContext>();
-        context
-            .mounts
-            .lock()
-            .expect("mount lock poisoned")
-            .remove(&watch_id);
+        context.mounts.lock_recover().remove(&watch_id);
 
         let runtime = MountRuntime {
             mount_id: watch_id.clone(),
@@ -275,11 +279,7 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
 
 pub fn stop(app: AppHandle, mount_id: &str) -> Result<(), String> {
     let context = app.state::<AppContext>();
-    let entry = context
-        .mounts
-        .lock()
-        .expect("mount lock poisoned")
-        .remove(mount_id);
+    let entry = context.mounts.lock_recover().remove(mount_id);
 
     match entry {
         Some(entry) => entry
@@ -296,8 +296,7 @@ pub fn kill_all(app: &AppHandle) {
     let context = app.state::<AppContext>();
     let pids: Vec<u32> = context
         .mounts
-        .lock()
-        .expect("mount lock poisoned")
+        .lock_recover()
         .values()
         .filter_map(|entry| entry.runtime.pid)
         .collect();
@@ -305,15 +304,14 @@ pub fn kill_all(app: &AppHandle) {
     for pid in pids {
         crate::runner::kill_process(pid);
     }
-    context.mounts.lock().expect("mount lock poisoned").clear();
+    context.mounts.lock_recover().clear();
 }
 
 pub fn states(app: &AppHandle) -> Vec<MountRuntime> {
     let context = app.state::<AppContext>();
     let live: Vec<MountRuntime> = context
         .mounts
-        .lock()
-        .expect("mount lock poisoned")
+        .lock_recover()
         .values()
         .map(|entry| entry.runtime.clone())
         .collect();

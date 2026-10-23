@@ -1,7 +1,7 @@
 //! The Tauri command surface. Every mutation returns the new `AppState` so the UI has
 //! exactly one source of truth.
 
-use crate::context::{AppContext, MountRuntime};
+use crate::context::{AppContext, LockExt, MountRuntime};
 use crate::runner::RcloneInfo;
 use crate::{jobs, mounts};
 use s3dive_core::model::{now_ms, AppState, Job, Mount, Remote, RunSummary, Settings};
@@ -364,6 +364,15 @@ pub fn save_job(app: AppHandle, mut job: Job) -> Result<AppState, String> {
         job.last_run = existing.last_run.clone();
     }
 
+    // Editing a running job would leave the child on the old config while the UI shows the
+    // new one, so it is refused exactly like editing a mounted mount.
+    if context.active_jobs.lock_recover().contains(&job.id) {
+        return Err(format!(
+            "'{}' is running right now. Wait for it to finish before changing it.",
+            job.name
+        ));
+    }
+
     validate::validate_job(&state, &job)?;
 
     let (_, snapshot) = context.mutate(|state| {
@@ -386,8 +395,7 @@ pub fn delete_job(app: AppHandle, id: String) -> Result<AppState, String> {
     let context = app.state::<AppContext>();
     let running: Vec<String> = context
         .runs
-        .lock()
-        .expect("run lock poisoned")
+        .lock_recover()
         .iter()
         .filter(|(_, entry)| entry.job_id == id)
         .map(|(run_id, _)| run_id.clone())
@@ -443,12 +451,7 @@ pub fn save_mount(app: AppHandle, mut mount: Mount) -> Result<AppState, String> 
     validate::validate_mount(&state, &mount)?;
 
     // Editing a live mount would leave the child pointing at the old settings.
-    if context
-        .mounts
-        .lock()
-        .expect("mount lock poisoned")
-        .contains_key(&mount.id)
-    {
+    if context.mounts.lock_recover().contains_key(&mount.id) {
         return Err(format!(
             "'{}' is mounted right now. Unmount it before changing its settings.",
             mount.name

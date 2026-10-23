@@ -181,6 +181,19 @@ pub fn validate_job(state: &AppState, job: &Job) -> Result<(), String> {
     for pattern in job.include.iter().chain(job.exclude.iter()) {
         filter_pattern(pattern)?;
     }
+
+    // The mirror of the mount-side check: a job inside a mount point would make rclone
+    // read its own output, so refuse it at creation time too.
+    let local = Path::new(job.local_path.trim());
+    for mount in &state.mounts {
+        if paths_overlap(local, Path::new(mount.mount_point.trim())) {
+            return Err(format!(
+                "The folder {} overlaps the mount point of '{}'. Pick a folder outside it.",
+                job.local_path, mount.name
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -313,6 +326,31 @@ mod tests {
         job.exclude = vec!["  ".into()];
         let err = validate_job(&state, &job).unwrap_err();
         assert!(err.contains("cannot be empty"), "{err}");
+    }
+
+    #[test]
+    fn a_job_cannot_point_inside_a_mount_point() {
+        let mut state = AppState::default();
+        state.remotes.push(Remote::new("media", "AKIA"));
+        state
+            .mounts
+            .push(Mount::new("Media", "media", "photos", "/mnt/media"));
+
+        let mut job = Job::new(
+            "Photos",
+            JobKind::Copy,
+            "media",
+            "photos",
+            "/mnt/media/photos",
+        );
+        let error = validate_job(&state, &job).unwrap_err();
+        assert!(error.contains("overlaps the mount point"), "{error}");
+
+        job.local_path = "/mnt/media".into();
+        assert!(validate_job(&state, &job).is_err());
+
+        job.local_path = "/home/me/Pictures".into();
+        assert!(validate_job(&state, &job).is_ok());
     }
 
     #[test]

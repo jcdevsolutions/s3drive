@@ -3,7 +3,7 @@
 //! S3Dive never runs rclone through a shell; arguments come from the tested core
 //! builders and the child is killed by pid when the user stops a run.
 
-use crate::context::{AppContext, RunEntry};
+use crate::context::{AppContext, LockExt, RunEntry};
 use crate::runner::Rclone;
 use s3dive_core::model::{now_ms, Job, RunOutcome, RunSummary};
 use s3dive_core::rclone::{self, TransferOptions};
@@ -116,16 +116,8 @@ fn persist_and_spawn(
 /// Release every reservation for a run that never made it to the supervisor.
 fn abandon(app: &AppHandle, run_id: &str, job_id: &str) {
     let context = app.state::<AppContext>();
-    context
-        .runs
-        .lock()
-        .expect("run lock poisoned")
-        .remove(run_id);
-    context
-        .active_jobs
-        .lock()
-        .expect("run lock poisoned")
-        .remove(job_id);
+    context.runs.lock_recover().remove(run_id);
+    context.active_jobs.lock_recover().remove(job_id);
 }
 
 /// Start a run and return its immediate summary. Progress arrives as events.
@@ -147,7 +139,7 @@ pub async fn run(app: AppHandle, job_id: String, resync: bool) -> Result<RunSumm
     // spawn so two clicks can never start two children.
     {
         let context = app.state::<AppContext>();
-        let mut active = context.active_jobs.lock().expect("run lock poisoned");
+        let mut active = context.active_jobs.lock_recover();
         if !active.insert(job_id.clone()) {
             return Err(format!("'{}' is already running.", job.name));
         }
@@ -156,7 +148,7 @@ pub async fn run(app: AppHandle, job_id: String, resync: bool) -> Result<RunSumm
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
     {
         let context = app.state::<AppContext>();
-        context.runs.lock().expect("run lock poisoned").insert(
+        context.runs.lock_recover().insert(
             run_id.clone(),
             RunEntry {
                 job_id: job_id.clone(),
@@ -180,7 +172,7 @@ pub async fn run(app: AppHandle, job_id: String, resync: bool) -> Result<RunSumm
 
     if let Some(pid) = pid {
         let context = app.state::<AppContext>();
-        let mut runs = context.runs.lock().expect("run lock poisoned");
+        let mut runs = context.runs.lock_recover();
         if let Some(entry) = runs.get_mut(&run_id) {
             entry.pid = Some(pid);
         }
@@ -259,16 +251,8 @@ pub async fn run(app: AppHandle, job_id: String, resync: bool) -> Result<RunSumm
         };
 
         let context = finish_app.state::<AppContext>();
-        context
-            .runs
-            .lock()
-            .expect("run lock poisoned")
-            .remove(&finish_run);
-        context
-            .active_jobs
-            .lock()
-            .expect("run lock poisoned")
-            .remove(&finish_job);
+        context.runs.lock_recover().remove(&finish_run);
+        context.active_jobs.lock_recover().remove(&finish_job);
 
         if let Err(error) = context.mutate(|state| {
             if let Some(stored) = state
@@ -305,11 +289,7 @@ pub async fn run(app: AppHandle, job_id: String, resync: bool) -> Result<RunSumm
 
 pub fn cancel(app: AppHandle, run_id: &str) -> Result<(), String> {
     let context = app.state::<AppContext>();
-    let entry = context
-        .runs
-        .lock()
-        .expect("run lock poisoned")
-        .remove(run_id);
+    let entry = context.runs.lock_recover().remove(run_id);
 
     match entry {
         Some(entry) => entry
@@ -327,10 +307,6 @@ pub fn kill_all(app: &AppHandle) {
     for pid in context.running_job_pids() {
         crate::runner::kill_process(pid);
     }
-    context.runs.lock().expect("run lock poisoned").clear();
-    context
-        .active_jobs
-        .lock()
-        .expect("run lock poisoned")
-        .clear();
+    context.runs.lock_recover().clear();
+    context.active_jobs.lock_recover().clear();
 }

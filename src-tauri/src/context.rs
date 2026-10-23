@@ -33,6 +33,18 @@ pub struct MountRuntime {
     pub started_at_ms: Option<u64>,
 }
 
+/// A poisoned mutex still holds valid data. Recovering keeps the app usable instead of
+/// turning one panicking task into a permanently broken UI on every later command.
+pub trait LockExt<T> {
+    fn lock_recover(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockExt<T> for Mutex<T> {
+    fn lock_recover(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
 pub struct AppContext {
     pub paths: Paths,
     pub os: Os,
@@ -75,7 +87,7 @@ impl AppContext {
     }
 
     pub fn state(&self) -> AppState {
-        self.state.lock().expect("state lock poisoned").clone()
+        self.state.lock_recover().clone()
     }
 
     /// Apply a change and persist it. On failure nothing changes, in memory or on
@@ -84,7 +96,7 @@ impl AppContext {
         &self,
         change: impl FnOnce(&mut AppState) -> Result<R, String>,
     ) -> Result<(R, AppState), String> {
-        let mut guard = self.state.lock().expect("state lock poisoned");
+        let mut guard = self.state.lock_recover();
         let backup = guard.clone();
 
         let value = match change(&mut guard) {
@@ -111,8 +123,7 @@ impl AppContext {
     /// Pids of every live job child, for teardown on exit.
     pub fn running_job_pids(&self) -> Vec<u32> {
         self.runs
-            .lock()
-            .expect("run lock poisoned")
+            .lock_recover()
             .values()
             .filter_map(|entry| entry.pid)
             .collect()
