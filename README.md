@@ -185,6 +185,7 @@ Settings → *Reveal config folder* opens it.
 | `state.json is not readable` | S3Dive keeps the unreadable file as `state.json.corrupt-<timestamp>` and starts empty instead of overwriting it. |
 | `mount point must be empty` | Point the mount at an existing empty directory. |
 | Mount dies immediately | Open the mount's *Log*; rclone's last stderr line is kept on the card. |
+| Linux: the window is a mess of corrupted horizontal bands | WebKitGTK's DMA-BUF renderer failing on your graphics driver. S3Dive already disables it at startup; if the bands persist, launch with `WEBKIT_DISABLE_COMPOSITING_MODE=1` as well. |
 
 ## Status and limits (v1)
 

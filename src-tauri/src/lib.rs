@@ -10,7 +10,25 @@ use paths::Paths;
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 
+/// WebKitGTK's DMA-BUF renderer misrenders on some Linux driver stacks (seen on
+/// nouveau with an NVIDIA card, X11, WebKitGTK 2.52): the window comes up as
+/// corrupted horizontal bands instead of the UI. Turning that renderer off is the
+/// documented workaround and costs nothing noticeable for this UI, so it is the
+/// default on Linux. Set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to opt back in.
+/// Must run before the webview is created.
+#[cfg(target_os = "linux")]
+fn apply_linux_webkit_defaults() {
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn apply_linux_webkit_defaults() {}
+
 pub fn run() {
+    apply_linux_webkit_defaults();
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
