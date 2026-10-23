@@ -308,6 +308,29 @@ impl Default for AppState {
 }
 
 impl AppState {
+    /// Give every record an identity.
+    ///
+    /// A state file written by an older build could hold an empty id. Every
+    /// lookup by id then pointed at the same record, so two buckets could not
+    /// coexist. Repairing the ids on load keeps such a file usable.
+    pub fn ensure_ids(&mut self) {
+        for remote in self.remotes.iter_mut() {
+            if remote.id.trim().is_empty() {
+                remote.id = new_id();
+            }
+        }
+        for job in self.jobs.iter_mut() {
+            if job.id.trim().is_empty() {
+                job.id = new_id();
+            }
+        }
+        for mount in self.mounts.iter_mut() {
+            if mount.id.trim().is_empty() {
+                mount.id = new_id();
+            }
+        }
+    }
+
     pub fn find_remote(&self, name: &str) -> Option<&Remote> {
         self.remotes.iter().find(|remote| remote.name == name)
     }

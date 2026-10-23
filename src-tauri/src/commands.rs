@@ -6,7 +6,7 @@ use crate::runner::RcloneInfo;
 use crate::{jobs, mounts};
 use s3dive_core::model::{now_ms, AppState, Job, Mount, Remote, RunSummary, Settings};
 use s3dive_core::platform::FuseStatus;
-use s3dive_core::{rclone, rclone_conf, store, validate};
+use s3dive_core::{rclone, rclone_conf, remotes, store, validate};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
@@ -131,12 +131,20 @@ pub async fn save_remote(
     secret_access_key: Option<String>,
 ) -> Result<AppState, String> {
     let context = app.state::<AppContext>();
+    save_remote_inner(&context, remote, secret_access_key)
+}
+
+/// Save a remote: its credentials go to the app-owned `rclone.conf` and its
+/// definition to the state file.
+///
+/// The state transition itself lives in `s3dive_core::remotes`, so it can be
+/// tested without a webview; this function only wires it to the filesystem.
+fn save_remote_inner(
+    context: &AppContext,
+    remote: Remote,
+    secret_access_key: Option<String>,
+) -> Result<AppState, String> {
     let state = context.state();
-    let existing = state
-        .remotes
-        .iter()
-        .find(|candidate| candidate.id == remote.id)
-        .cloned();
 
     let mut record = remote;
     record.name = record.name.trim().to_string();
@@ -149,17 +157,24 @@ pub async fn save_remote(
 
     validate::validate_remote(&record)?;
 
-    let except = existing.as_ref().map(|candidate| candidate.id.as_str());
-    if state.remote_name_taken(&record.name, except) {
+    // Plan first: the record gets its identity before anything looks it up, so a
+    // new bucket can never be mistaken for an existing one.
+    let planned = remotes::plan_remote_update(&state, record)?;
+    let record = &planned.record;
+
+    // The name is the rclone config section name, so it must stay unique.
+    if state.remote_name_taken(&record.name, Some(record.id.as_str())) {
         return Err(format!("A bucket named '{}' already exists.", record.name));
     }
 
-    let previous_name = existing
-        .as_ref()
-        .map(|candidate| candidate.name.clone())
-        .unwrap_or_else(|| record.name.clone());
+    // The credentials live in the section named after the remote, so a rename
+    // reads them from the section the remote had before.
+    let section_name = planned
+        .previous_name
+        .as_deref()
+        .unwrap_or(record.name.as_str());
     let conf_path = context.paths.rclone_conf();
-    let current_conf = read_conf(&context)?;
+    let current_conf = read_conf(context)?;
     let secret = secret_access_key
         .as_deref()
         .map(str::trim)
@@ -170,7 +185,7 @@ pub async fn save_remote(
     // request fail with SignatureDoesNotMatch. The file is private and mode 0600.
     let secret = match secret {
         Some(secret) => secret.to_string(),
-        None => rclone_conf::get_section(&current_conf, &previous_name)
+        None => rclone_conf::get_section(&current_conf, section_name)
             .and_then(|pairs| {
                 pairs
                     .into_iter()
@@ -186,53 +201,22 @@ pub async fn save_remote(
     };
 
     let mut updated_conf = current_conf;
-    if let Some(existing) = &existing {
-        if existing.name != record.name {
-            updated_conf = rclone_conf::remove_section(&updated_conf, &existing.name);
+    if let Some(old_name) = planned.previous_name.as_deref() {
+        if old_name != record.name {
+            updated_conf = rclone_conf::remove_section(&updated_conf, old_name);
         }
     }
     updated_conf = rclone_conf::set_section(
         &updated_conf,
         &record.name,
-        &rclone_conf::remote_pairs(&record, &secret),
+        &rclone_conf::remote_pairs(record, &secret),
     );
     store::write_private_file(&conf_path, &updated_conf).map_err(|error| error.to_string())?;
 
-    if let Some(existing) = existing {
-        record.created_at_ms = existing.created_at_ms;
-    }
-
-    // A rename must keep jobs and mounts pointing at the same bucket.
-    let renamed_from = state
-        .remotes
-        .iter()
-        .find(|candidate| candidate.id == record.id)
-        .map(|candidate| candidate.name.clone())
-        .filter(|old_name| *old_name != record.name);
-    let new_name = record.name.clone();
-
+    // The state transition is applied last and re-checks the name, so the config
+    // file and the state file cannot end up disagreeing about which buckets exist.
     let (_, snapshot) = context.mutate(move |state| {
-        if let Some(old_name) = renamed_from {
-            for job in state.jobs.iter_mut() {
-                if job.remote == old_name {
-                    job.remote = new_name.clone();
-                }
-            }
-            for mount in state.mounts.iter_mut() {
-                if mount.remote == old_name {
-                    mount.remote = new_name.clone();
-                }
-            }
-        }
-        if let Some(index) = state
-            .remotes
-            .iter()
-            .position(|candidate| candidate.id == record.id)
-        {
-            state.remotes[index] = record;
-        } else {
-            state.remotes.push(record);
-        }
+        remotes::apply_remote_update(state, &planned)?;
         Ok(())
     })?;
     Ok(snapshot)
@@ -241,6 +225,11 @@ pub async fn save_remote(
 #[tauri::command]
 pub async fn delete_remote(app: AppHandle, id: String) -> Result<AppState, String> {
     let context = app.state::<AppContext>();
+    delete_remote_inner(&context, id)
+}
+
+/// Remove a remote and the credentials stored for it.
+fn delete_remote_inner(context: &AppContext, id: String) -> Result<AppState, String> {
     let state = context.state();
     let remote = state
         .remotes
@@ -257,7 +246,7 @@ pub async fn delete_remote(app: AppHandle, id: String) -> Result<AppState, Strin
     }
 
     let conf_path = context.paths.rclone_conf();
-    let current_conf = read_conf(&context)?;
+    let current_conf = read_conf(context)?;
     let updated_conf = rclone_conf::remove_section(&current_conf, &remote.name);
     store::write_private_file(&conf_path, &updated_conf).map_err(|error| error.to_string())?;
 
@@ -523,4 +512,104 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
         manager.disable().map_err(|error| error.to_string())?;
     }
     manager.is_enabled().map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::paths::Paths;
+    use s3dive_core::model::{Job, JobKind, Remote};
+
+    fn context_in(dir: &std::path::Path) -> AppContext {
+        AppContext::load(Paths::new(dir.to_path_buf()))
+    }
+
+    #[test]
+    fn saving_two_buckets_keeps_both() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = context_in(dir.path());
+
+        // The UI sends an empty id for a bucket it has never saved before.
+        let mut first = Remote::new("media", "AKIAONE");
+        first.id = String::new();
+        let state =
+            save_remote_inner(&context, first, Some("secret-one".into())).expect("save the first");
+        assert_eq!(state.remotes.len(), 1);
+
+        let mut second = Remote::new("backup", "AKIATWO");
+        second.id = String::new();
+        let state = save_remote_inner(&context, second, Some("secret-two".into()))
+            .expect("save the second");
+
+        assert_eq!(
+            state.remotes.len(),
+            2,
+            "the second bucket replaced the first"
+        );
+        assert_ne!(
+            state.remotes[0].id, state.remotes[1].id,
+            "both buckets share the same id"
+        );
+        assert!(!state.remotes[0].id.is_empty(), "a bucket kept an empty id");
+    }
+
+    #[test]
+    fn a_new_bucket_does_not_repoint_an_existing_job() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = context_in(dir.path());
+
+        let mut first = Remote::new("media", "AKIAONE");
+        first.id = String::new();
+        save_remote_inner(&context, first, Some("secret-one".into())).expect("save the first");
+
+        context
+            .mutate(|state| {
+                state.jobs.push(Job::new(
+                    "Photos",
+                    JobKind::Sync,
+                    "media",
+                    "photos",
+                    "/home/me/Pictures",
+                ));
+                Ok(())
+            })
+            .expect("add the job");
+
+        let mut second = Remote::new("backup", "AKIATWO");
+        second.id = String::new();
+        let state = save_remote_inner(&context, second, Some("secret-two".into()))
+            .expect("save the second");
+
+        assert_eq!(
+            state.jobs[0].remote, "media",
+            "the job was silently repointed at another bucket"
+        );
+    }
+
+    #[test]
+    fn deleting_a_bucket_removes_only_that_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = context_in(dir.path());
+
+        let mut first = Remote::new("media", "AKIAONE");
+        first.id = String::new();
+        save_remote_inner(&context, first, Some("secret-one".into())).expect("save the first");
+
+        let mut second = Remote::new("backup", "AKIATWO");
+        second.id = String::new();
+        let state = save_remote_inner(&context, second, Some("secret-two".into()))
+            .expect("save the second");
+        let backup_id = state
+            .remotes
+            .iter()
+            .find(|remote| remote.name == "backup")
+            .expect("the backup bucket")
+            .id
+            .clone();
+
+        let state = delete_remote_inner(&context, backup_id).expect("delete the backup bucket");
+
+        assert_eq!(state.remotes.len(), 1);
+        assert_eq!(state.remotes[0].name, "media");
+    }
 }

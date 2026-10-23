@@ -27,3 +27,6 @@ tokio = { version = "1", features = ["process", "io-util", "sync", "time", "rt-m
 # This feature is used for production builds where `devPath` points to the filesystem.
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"

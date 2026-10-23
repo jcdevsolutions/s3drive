@@ -52,10 +52,11 @@ pub fn load_state(path: &Path) -> Result<AppState, StoreError> {
         return Ok(AppState::default());
     }
 
-    let state: AppState = serde_json::from_str(&contents).map_err(|error| StoreError::Corrupt {
-        path: path.display().to_string(),
-        detail: error.to_string(),
-    })?;
+    let mut state: AppState =
+        serde_json::from_str(&contents).map_err(|error| StoreError::Corrupt {
+            path: path.display().to_string(),
+            detail: error.to_string(),
+        })?;
 
     if state.schema_version > STATE_VERSION {
         return Err(StoreError::UnsupportedVersion {
@@ -63,6 +64,9 @@ pub fn load_state(path: &Path) -> Result<AppState, StoreError> {
             supported: STATE_VERSION,
         });
     }
+
+    // A file written by an older build can hold records without an id.
+    state.ensure_ids();
 
     Ok(state)
 }
@@ -282,6 +286,31 @@ mod tests {
         assert!(!path.exists());
 
         assert_eq!(quarantine_state(&path).expect("no-op"), None);
+    }
+
+    #[test]
+    fn a_legacy_record_without_an_id_is_repaired_on_load() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.json");
+        // A state file written by a build that never generated remote ids.
+        fs::write(
+            &path,
+            r#"{
+                "schemaVersion": 1,
+                "remotes": [{
+                    "id": "",
+                    "name": "media",
+                    "accessKeyId": "AKIA",
+                    "createdAtMs": 1
+                }],
+                "jobs": [],
+                "mounts": []
+            }"#,
+        )
+        .expect("write");
+
+        let loaded = load_state(&path).expect("load");
+        assert!(!loaded.remotes[0].id.is_empty(), "the empty id survived");
     }
 
     #[test]

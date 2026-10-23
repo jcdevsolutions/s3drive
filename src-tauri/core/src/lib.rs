@@ -8,6 +8,7 @@ pub mod model;
 pub mod platform;
 pub mod rclone;
 pub mod rclone_conf;
+pub mod remotes;
 pub mod store;
 pub mod validate;
 
@@ -18,6 +19,7 @@ pub use model::{
 pub use platform::{fuse_status, Os};
 pub use rclone::{RemoteEntry, TransferOptions};
 pub use rclone_conf::remote_pairs;
+pub use remotes::{apply_remote_update, plan_remote_update, PlannedRemote};
 pub use store::{load_state, save_state, StoreError};
 
 pub const APP_NAME: &str = "S3Dive";
