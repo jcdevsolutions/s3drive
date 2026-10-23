@@ -91,6 +91,7 @@ L7 (bugs found by review and by probing real rclone, all fixed):
 - `find_in_path` accepted non-executable files on Unix; it now checks the executable bit.
 - Verified against real rclone 1.75.2: `obscure -` (stdin), `copy`/`sync` flag sets,
   `lsjson --dirs-only` payload shape, `bisync` presence, and every mount flag used.
+  (superseded by L6: s3 does not reveal obscured values)
 
 L8 (independent verification pass, read-only verifier; defects found and fixed):
 

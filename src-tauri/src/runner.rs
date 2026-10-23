@@ -5,7 +5,6 @@ use s3dive_core::rclone;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 #[derive(Debug, Clone, Serialize)]
@@ -114,41 +113,24 @@ impl Rclone {
     ///
     /// Bounded by a timeout: an unreachable S3 endpoint makes rclone retry for minutes
     /// with no output, which would otherwise leave a button spinning forever.
-    pub async fn captured(&self, args: &[String], stdin: Option<String>) -> Result<String, String> {
+    pub async fn captured(&self, args: &[String]) -> Result<String, String> {
         const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
         let program = self.program()?;
         let mut command = Command::new(program);
         command
             .args(args)
-            .stdin(if stdin.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = command.spawn().map_err(|error| {
+        let child = command.spawn().map_err(|error| {
             format!(
                 "Cannot run rclone at {}: {error}",
                 program.to_string_lossy()
             )
         })?;
         let pid = child.id();
-
-        if let Some(payload) = stdin {
-            if let Some(mut pipe) = child.stdin.take() {
-                if let Err(error) = pipe.write_all(payload.as_bytes()).await {
-                    if let Some(pid) = pid {
-                        kill_process(pid);
-                    }
-                    return Err(format!("Cannot send input to rclone: {error}"));
-                }
-                pipe.shutdown().await.ok();
-                drop(pipe);
-            }
-        }
 
         let output = match tokio::time::timeout(TIMEOUT, child.wait_with_output()).await {
             Ok(Ok(output)) => output,
@@ -192,7 +174,7 @@ impl Rclone {
             };
         };
 
-        match self.captured(&rclone::version_args(), None).await {
+        match self.captured(&rclone::version_args()).await {
             Ok(stdout) => RcloneInfo {
                 available: true,
                 program: Some(program.to_string_lossy().to_string()),

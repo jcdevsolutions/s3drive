@@ -23,8 +23,14 @@ does not reveal obscured values.
 | T1 | S2, S3 | core + app: write the secret verbatim, delete the obscure helpers | `719210d` | done: 57 core tests, `cargo check --all-targets`, clippy `-D warnings` |
 | T2 | S1, S2 | copy + docs: UI hint, README security bullets, troubleshooting row | this commit | done: `pnpm typecheck` |
 | T3 | S1, S2, S3 | verify: live B2 listing with an app-shaped config | n/a | done: obscured secret -> 403 `SignatureDoesNotMatch`, verbatim secret -> bucket listing, config byte-identical apart from the secret line |
+| T4 | S1, S2 | independent verifier over `719210d..e3014c4` | n/a | done: S1/S2/S3 PASS; reproduced at rclone's signing level against a loopback SigV4 validator (`== blob`, not `== plaintext`) |
+| T5 | S2, S3 | regression tests + dead-code cleanup after the verifier's advisories | `HEAD` | done: 57 unit + 6 integration tests, clippy `-D warnings`, `cargo check --all-targets` |
 
-Delivery: two reviewable slices (behavior, then copy/docs). No auto-migration is
+Review gate: `assess` on the committed range reported `risk=high` (agent escalation, item 2
+security), `nativeRisk=medium`, `reviewDue=false` (`under_budget`), so no native review
+transaction was opened; the independent verifier covered the escalated risk instead.
+
+Delivery: three reviewable slices (behavior, copy/docs, tests + dead code). No auto-migration is
 included on purpose: repairing a value written by the previous version would need
 `rclone reveal <obscured>` with the blob in the process arguments, which exposes the
 secret to local users through `ps`. Existing buckets are repaired by re-entering the

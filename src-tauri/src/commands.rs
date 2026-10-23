@@ -280,7 +280,7 @@ pub async fn test_remote(app: AppHandle, id: String) -> Result<RemoteTest, Strin
         .ok_or_else(|| "That bucket no longer exists.".to_string())?;
 
     let args = rclone::test_remote_args(&remote.name, &context.paths.conf_arg());
-    match context.rclone().captured(&args, None).await {
+    match context.rclone().captured(&args).await {
         Ok(stdout) => {
             let entries: Vec<String> = stdout
                 .lines()
@@ -328,7 +328,7 @@ pub async fn browse_remote(
     validate::remote_path(&path)?;
 
     let args = rclone::browse_args(&remote.name, &path, &context.paths.conf_arg());
-    let stdout = context.rclone().captured(&args, None).await?;
+    let stdout = context.rclone().captured(&args).await?;
     rclone::parse_lsjson(&stdout)
 }
 
