@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import type { ReactNode } from "react";
 
 export function Badge({
@@ -82,14 +82,20 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
+  // Callers pass a fresh inline closure on every render. Reading it through an
+  // effect event keeps the subscription and the one-shot focus below bound to
+  // mount only: re-running them per render would steal focus from the field the
+  // user is typing in.
+  const close = useEffectEvent(onClose);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") close();
     };
     window.addEventListener("keydown", onKey);
     ref.current?.focus();
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="overlay" role="presentation" onMouseDown={onClose}>
