@@ -190,11 +190,17 @@ fn s3_no_rclone_argument_vector_carries_the_secret() {
         ),
         (
             "transfer_args",
-            rclone::transfer_args(&job, &settings, &config, rclone::TransferOptions::default()),
+            rclone::transfer_args(
+                &job,
+                remote.name.as_str(),
+                &settings,
+                &config,
+                rclone::TransferOptions::default(),
+            ),
         ),
         (
             "mount_args",
-            rclone::mount_args(&mount, &settings, &config, &Os::Linux),
+            rclone::mount_args(&mount, remote.name.as_str(), &settings, &config, &Os::Linux),
         ),
         ("version_args", rclone::version_args()),
     ];

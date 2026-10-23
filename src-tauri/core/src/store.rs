@@ -69,6 +69,10 @@ pub fn load_state(path: &Path) -> Result<AppState, StoreError> {
     // A file written by an older build can hold records without an id.
     state.ensure_ids();
 
+    // A file written before schema v2 names its remotes instead of referencing
+    // them by id.
+    state.migrate_references();
+
     Ok(state)
 }
 
@@ -293,6 +297,121 @@ mod tests {
         assert!(!path.exists());
 
         assert_eq!(quarantine_state(&path).expect("no-op"), None);
+    }
+
+    #[test]
+    fn an_old_state_file_names_its_remotes_and_is_migrated() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.json");
+        // A schema v1 file: the job and the mount name their remote.
+        fs::write(
+            &path,
+            r#"{
+                "schemaVersion": 1,
+                "remotes": [{
+                    "id": "r1",
+                    "name": "media",
+                    "accessKeyId": "AKIA",
+                    "createdAtMs": 1
+                }],
+                "jobs": [{
+                    "id": "j1",
+                    "name": "Photos",
+                    "kind": "sync",
+                    "direction": "push",
+                    "remote": "media",
+                    "remotePath": "photos",
+                    "localPath": "/home/me/Pictures",
+                    "createdAtMs": 1
+                }],
+                "mounts": [{
+                    "id": "m1",
+                    "name": "Media",
+                    "remote": "media",
+                    "remotePath": "photos",
+                    "mountPoint": "/mnt/media",
+                    "createdAtMs": 1
+                }]
+            }"#,
+        )
+        .expect("write");
+
+        let loaded = load_state(&path).expect("load");
+
+        assert_eq!(loaded.schema_version, STATE_VERSION);
+        assert_eq!(loaded.jobs[0].remote_id, "r1", "the job lost its remote");
+        assert_eq!(
+            loaded.mounts[0].remote_id, "r1",
+            "the mount lost its remote"
+        );
+        assert!(
+            loaded.dangling_references().is_empty(),
+            "{:?}",
+            loaded.dangling_references()
+        );
+    }
+
+    #[test]
+    fn an_old_state_file_with_a_missing_remote_is_reported_not_repointed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.json");
+        // The job names a remote that is not in the file.
+        fs::write(
+            &path,
+            r#"{
+                "schemaVersion": 1,
+                "remotes": [{
+                    "id": "r1",
+                    "name": "media",
+                    "accessKeyId": "AKIA",
+                    "createdAtMs": 1
+                }],
+                "jobs": [{
+                    "id": "j1",
+                    "name": "Photos",
+                    "kind": "sync",
+                    "direction": "push",
+                    "remote": "gone",
+                    "remotePath": "photos",
+                    "localPath": "/home/me/Pictures",
+                    "createdAtMs": 1
+                }],
+                "mounts": []
+            }"#,
+        )
+        .expect("write");
+
+        let loaded = load_state(&path).expect("load");
+
+        assert_eq!(loaded.jobs[0].remote_id, "", "the job was re-pointed");
+        let dangling = loaded.dangling_references();
+        assert_eq!(dangling.len(), 1, "{dangling:?}");
+        assert!(dangling[0].contains("Photos"), "{dangling:?}");
+    }
+
+    #[test]
+    fn the_saved_state_references_a_remote_by_id() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.json");
+
+        let mut state = AppState::default();
+        let remote = Remote::new("media", "AKIAEXAMPLE");
+        state.remotes.push(remote.clone());
+        state.jobs.push(Job::new(
+            "Photos",
+            JobKind::Sync,
+            remote.id.clone(),
+            "photos",
+            "/home/me/Pictures",
+        ));
+        save_state(&path, &state).expect("save");
+
+        let json = fs::read_to_string(&path).expect("read");
+        assert!(json.contains("\"remoteId\""), "{json}");
+        assert!(
+            !json.contains("\"remote\":"),
+            "the old name field is still written: {json}"
+        );
     }
 
     #[test]

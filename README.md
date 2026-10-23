@@ -184,7 +184,7 @@ Settings → *Reveal config folder* opens it.
 | `Access denied` on a bucket | The key is valid but lacks `s3:ListBucket`/`s3:GetObject` on that bucket. |
 | `Signature mismatch` | The signing secret does not belong to that access key ID, or the region/endpoint pair is wrong — re-enter the secret on the bucket. If it appears after upgrading rclone, check that `secret_access_key` in S3Dive's `rclone.conf` is plaintext: rclone's s3 backend does not reveal obscured values. |
 | Mount button disabled / "macFUSE is not installed" | Install the mount prerequisite for your OS and restart S3Dive. |
-| "That bucket is still used by a job or a mount" | Buckets referenced by jobs/mounts cannot be deleted. Renaming one updates the references automatically. |
+| "That bucket is still used by a job or a mount" | Buckets referenced by jobs/mounts cannot be deleted. Renaming one keeps every job and mount on the same bucket. |
 | `state.json is not readable` | S3Dive keeps the unreadable file as `state.json.corrupt-<timestamp>` and starts empty instead of overwriting it. |
 | `mount point must be empty` | Point the mount at an existing empty directory. |
 | Mount dies immediately | Open the mount's *Log*; rclone's last stderr line is kept on the card. |

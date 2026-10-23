@@ -25,6 +25,8 @@ pub struct Bootstrap {
     pub running_mounts: Vec<MountRuntime>,
     /// Non-fatal startup problem, e.g. an unreadable state file.
     pub warning: Option<String>,
+    /// Jobs and mounts whose bucket is gone. They are reported, never re-pointed.
+    pub dangling: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +58,7 @@ fn autostart_enabled(app: &AppHandle) -> bool {
 pub async fn bootstrap(app: AppHandle) -> Result<Bootstrap, String> {
     let context = app.state::<AppContext>();
     let state = context.state();
+    let dangling = state.dangling_references();
     let rclone = context.rclone().info().await;
     let fuse = context.fuse();
     let autostart = autostart_enabled(&app);
@@ -72,6 +75,7 @@ pub async fn bootstrap(app: AppHandle) -> Result<Bootstrap, String> {
         state_file: context.paths.state_file().to_string_lossy().to_string(),
         running_mounts,
         warning: context.load_warning.clone(),
+        dangling,
     })
 }
 
@@ -256,7 +260,7 @@ fn delete_remote_inner(context: &AppContext, id: String) -> Result<AppState, Str
         .cloned()
         .ok_or_else(|| "That bucket no longer exists.".to_string())?;
 
-    if state.references_remote(&remote.name) {
+    if state.references_remote(&remote.id) {
         return Err(format!(
             "'{}' is still used by a job or a mount. Remove those first.",
             remote.name
@@ -577,12 +581,21 @@ mod tests {
         first.id = String::new();
         save_remote_inner(&context, first, Some("secret-one".into())).expect("save the first");
 
+        let media_id = context
+            .state()
+            .remotes
+            .iter()
+            .find(|remote| remote.name == "media")
+            .expect("the media bucket")
+            .id
+            .clone();
+
         context
             .mutate(|state| {
                 state.jobs.push(Job::new(
                     "Photos",
                     JobKind::Sync,
-                    "media",
+                    media_id.clone(),
                     "photos",
                     "/home/me/Pictures",
                 ));
@@ -596,7 +609,7 @@ mod tests {
             .expect("save the second");
 
         assert_eq!(
-            state.jobs[0].remote, "media",
+            state.jobs[0].remote_id, media_id,
             "the job was silently repointed at another bucket"
         );
     }

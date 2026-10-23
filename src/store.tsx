@@ -37,6 +37,8 @@ interface AppContextValue {
   logs: Record<string, string[]>;
   runs: Record<string, RunHandle>;
   runtimes: Record<string, MountRuntime>;
+  /** Jobs and mounts whose bucket is gone. */
+  dangling: string[];
   notice: Notice | null;
   setNotice: (notice: Notice | null) => void;
   replaceState: (state: AppState) => void;
@@ -78,6 +80,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   const [runs, setRuns] = useState<Record<string, RunHandle>>({});
   const [runtimes, setRuntimes] = useState<Record<string, MountRuntime>>({});
+  const [dangling, setDangling] = useState<Array<string>>([]);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
 
@@ -114,6 +117,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
         setRuntimes(
           Object.fromEntries(boot.runningMounts.map((runtime) => [runtime.mountId, runtime])),
         );
+        setDangling(boot.dangling);
         if (boot.warning) {
           setNotice({ kind: "error", text: boot.warning });
         }
@@ -197,6 +201,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
       logs,
       runs,
       runtimes,
+      dangling,
       notice,
       setNotice,
       replaceState,
@@ -216,6 +221,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
     logs,
     runs,
     runtimes,
+    dangling,
     notice,
     replaceState,
     replaceRclone,

@@ -33,7 +33,8 @@ export interface Job {
   name: string;
   kind: JobKind;
   direction: Direction;
-  remote: string;
+  /** The id of the bucket this job uses. */
+  remoteId: string;
   remotePath: string;
   localPath: string;
   dryRun: boolean;
@@ -48,7 +49,8 @@ export type VfsCacheMode = "off" | "minimal" | "writes" | "full";
 export interface Mount {
   id: string;
   name: string;
-  remote: string;
+  /** The id of the bucket this mount exposes. */
+  remoteId: string;
   remotePath: string;
   mountPoint: string;
   autoMount: boolean;
@@ -107,6 +109,8 @@ export interface Bootstrap {
   stateFile: string;
   runningMounts: MountRuntime[];
   warning: string | null;
+  /** Jobs and mounts whose bucket is gone. */
+  dangling: string[];
 }
 
 export interface RemoteTest {

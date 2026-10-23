@@ -60,9 +60,9 @@ src-tauri/core/Cargo.toml` (headless), `cargo test --manifest-path src-tauri/Car
 | T2 | S2 | inline | eeef3a0 | done: `save_remote` / `delete_remote` wiring + 3 shell tests |
 | T3 | S3 | inline | 3d68e5f | done: core flag tokenizer (`split_flag_line`) + `validate::extra_flags` + `base_args` + 10 core tests |
 | T4 | S3 | inline | 3d68e5f | done: `save_settings` calls the core validation, Settings hint and README wording fixed |
-| T5 | S4 | inline | pending | pending: keep the pid in the registry until the child is dead |
-| T6 | S5 | inline | pending | pending: `rclone.conf` and `state.json` stay consistent |
-| T7 | S6 | inline | pending | pending: unique temporary file per write |
+| T5 | S4 | inline | 397937d | done: `cancel`/`stop` take the sender, the entry stays in the registry until the child is dead + 4 shell tests |
+| T6 | S5 | inline | 397937d | done: `commit_remote_change` writes the config and the state together and restores the config when the state write fails + 1 shell test |
+| T7 | S6 | inline | 397937d | done: every write gets its own temporary file + 2 core tests |
 | T8 | S7 | inline | pending | pending: reject control characters in the secret |
 | T9 | S8 | inline | pending | pending: labels associated + modal focus trap |
 | T10 | S9 | inline | pending | pending: P3 cleanups |
@@ -167,3 +167,22 @@ L10 (work unit 2 — extra flags, RED → GREEN, delivered in `3d68e5f`):
 L11 (delivery): 911 authored lines across three commits (`main` -> `fix/review-findings` ->
 `fix/extra-flags`). The chain strategy applies: the next work unit starts on
 `fix/process-lifecycle`, stacked on `fix/extra-flags`.
+
+L12 (work unit 3 — process lifecycle, done inline because it is the highest-risk unit and
+the design was already fixed in L9):
+
+- T5: `RunEntry.cancel` and `MountEntry.cancel` became `Option<oneshot::Sender<()>>`. `cancel`
+  and `stop` take the sender out of the entry and leave the entry in the registry; the
+  supervisor removes it when the child is really gone. The pid therefore stays killable.
+  Tests: `a_cancelled_run_stays_killable`, `a_stopped_mount_stays_killable`.
+- T6: `commit_remote_change` writes the config and the state together. The config is written
+  first; when the state write fails, the previous config content is written back and the
+  error says so when even that fails. Test: `a_failed_state_write_restores_the_config`
+  (the state path is turned into a directory, so the atomic rename cannot land).
+- T7: `store::temp_path` adds a per-write counter to the pid. Tests: `temporary_names_never_repeat`
+  and `concurrent_writes_to_the_same_file_both_land`.
+- Evidence: core 72 unit + 5 + 6 integration tests, shell 8 tests, all green; clippy
+  `-D warnings` clean on both crates; `cargo fmt --check` clean; `pnpm build` green.
+- Correction made during the unit: the first version of the rollback test created a directory
+  where `state.json` already existed as a file, so the test failed on its own setup, not on
+  the behaviour. Fixed by removing the file first.

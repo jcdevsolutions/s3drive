@@ -39,7 +39,7 @@ fn emit_change(app: &AppHandle, runtime: &MountRuntime) {
 /// Start one mount. Returns the runtime immediately; the child is supervised in the
 /// background so a crashed mount is reflected in the UI.
 pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, String> {
-    let (mount, program, args) = {
+    let (mount, remote_name, program, args) = {
         let context = app.state::<AppContext>();
         let state = context.state();
         let mount = state
@@ -47,6 +47,12 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
             .cloned()
             .ok_or_else(|| format!("Mount '{mount_id}' no longer exists."))?;
         validate::validate_mount(&state, &mount)?;
+
+        // The mount holds the id of its remote; rclone needs its name.
+        let remote = state
+            .find_remote_by_id(&mount.remote_id)
+            .ok_or_else(|| "The bucket this mount uses no longer exists.".to_string())?;
+        let remote_name = remote.name.clone();
 
         let fuse = context.fuse();
         if !fuse.available {
@@ -118,11 +124,12 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
         let program = rclone.program()?.to_path_buf();
         let args = rclone::mount_args(
             &mount,
+            &remote_name,
             &state.settings,
             &context.paths.conf_arg(),
             &context.os,
         );
-        (mount, program, args)
+        (mount, remote_name, program, args)
     };
 
     // rclone mounts a missing bucket without complaint and then fails every write,
@@ -136,12 +143,12 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
         .filter(|b| !b.is_empty())
     {
         let context = app.state::<AppContext>();
-        let probe = rclone::browse_args(&mount.remote, bucket, &context.paths.conf_arg());
+        let probe = rclone::browse_args(&remote_name, bucket, &context.paths.conf_arg());
         if let Err(error) = context.rclone().captured(&probe).await {
             if error.to_lowercase().contains("directory not found") {
                 return Err(format!(
                     "Bucket '{bucket}' does not exist on '{}'. The folder path must start with the bucket name, e.g. my-bucket/photos.",
-                    mount.remote
+                    remote_name
                 ));
             }
         }

@@ -21,7 +21,7 @@ interface Draft {
   id: string;
   createdAtMs: number;
   name: string;
-  remote: string;
+  remoteId: string;
   remotePath: string;
   mountPoint: string;
   autoMount: boolean;
@@ -41,12 +41,12 @@ function draftFrom(mount: Mount): Draft {
   return { ...mount };
 }
 
-function emptyDraft(remote: string): Draft {
+function emptyDraft(remoteId: string): Draft {
   return {
     id: "",
     createdAtMs: 0,
     name: "",
-    remote,
+    remoteId,
     remotePath: "",
     mountPoint: "",
     autoMount: true,
@@ -71,7 +71,9 @@ export default function MountsView() {
   const update = (patch: Partial<Draft>) =>
     setDraft((current) => (current ? { ...current, ...patch } : current));
 
-  const selectedRemote = draft ? state.remotes.find((remote) => remote.name === draft.remote) : undefined;
+  const selectedRemote = draft
+    ? state.remotes.find((remote) => remote.id === draft.remoteId)
+    : undefined;
 
   const pickMountPoint = async () => {
     const picked = await open({
@@ -165,7 +167,7 @@ export default function MountsView() {
           type="button"
           className="button button--primary"
           disabled={state.remotes.length === 0}
-          onClick={() => setDraft(emptyDraft(state.remotes[0]?.name ?? ""))}
+          onClick={() => setDraft(emptyDraft(state.remotes[0]?.id ?? ""))}
         >
           New mount
         </button>
@@ -211,6 +213,7 @@ export default function MountsView() {
           {state.mounts.map((mount) => {
             const runtime = runtimes[mount.id];
             const running = runtime?.running ?? false;
+            const bucket = state.remotes.find((remote) => remote.id === mount.remoteId);
             const lines = logs[`mount:${mount.id}`] ?? [];
             const isOpen = expanded[mount.id] ?? false;
             return (
@@ -226,7 +229,10 @@ export default function MountsView() {
                       {mount.readOnly ? <Badge tone="neutral">read-only</Badge> : null}
                     </div>
                     <p className="card__meta mono">
-                      {joinRemotePath(mount.remote, mount.remotePath)} → {mount.mountPoint}
+                      {bucket
+                        ? joinRemotePath(bucket.name, mount.remotePath)
+                        : "the bucket was removed"}{" "}
+                      → {mount.mountPoint}
                     </p>
                   </div>
                 </header>
@@ -325,11 +331,11 @@ export default function MountsView() {
             <Field label="Bucket">
               <select
                 className="input"
-                value={draft.remote}
-                onChange={(event) => update({ remote: event.target.value, remotePath: "" })}
+                value={draft.remoteId}
+                onChange={(event) => update({ remoteId: event.target.value, remotePath: "" })}
               >
                 {state.remotes.map((remote) => (
-                  <option key={remote.id} value={remote.name}>
+                  <option key={remote.id} value={remote.id}>
                     {remote.name}
                   </option>
                 ))}
@@ -337,7 +343,10 @@ export default function MountsView() {
             </Field>
           </div>
 
-          <Field label="Bucket and folder" hint={selectedRemote ? `${draft.remote}:${draft.remotePath}` : undefined}>
+          <Field
+            label="Bucket and folder"
+            hint={selectedRemote ? `${selectedRemote.name}:${draft.remotePath}` : undefined}
+          >
             <div className="input-row">
               <input
                 className="input mono"

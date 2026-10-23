@@ -104,14 +104,18 @@ pub struct TransferOptions {
 }
 
 /// Full argument vector for a sync, copy or bisync job.
+///
+/// `remote_name` is the rclone section name of the remote the job uses. It is
+/// passed in because the job carries the id of that remote, not its name.
 pub fn transfer_args(
     job: &Job,
+    remote_name: &str,
     settings: &Settings,
     config_path: &str,
     options: TransferOptions,
 ) -> Vec<String> {
     let mut args = base_args(config_path, settings);
-    let remote = remote_spec(&job.remote, &job.remote_path);
+    let remote = remote_spec(remote_name, &job.remote_path);
     args.push(job.kind.transfer_command().to_string());
 
     match (job.kind, job.direction) {
@@ -156,10 +160,18 @@ pub fn transfer_args(
 
 /// Full argument vector for `rclone mount`. S3Dive supervises the child process,
 /// so `--daemon` is never used.
-pub fn mount_args(mount: &Mount, settings: &Settings, config_path: &str, os: &Os) -> Vec<String> {
+///
+/// `remote_name` is the rclone section name of the remote the mount exposes.
+pub fn mount_args(
+    mount: &Mount,
+    remote_name: &str,
+    settings: &Settings,
+    config_path: &str,
+    os: &Os,
+) -> Vec<String> {
     let mut args = base_args(config_path, settings);
     args.push("mount".to_string());
-    args.push(remote_spec(&mount.remote, &mount.remote_path));
+    args.push(remote_spec(remote_name, &mount.remote_path));
     args.push(mount.mount_point.clone());
 
     args.push("--vfs-cache-mode".to_string());
@@ -349,7 +361,13 @@ mod tests {
         job.include = vec!["*.jpg".into()];
         job.exclude = vec!["*.tmp".into()];
 
-        let args = transfer_args(&job, &settings(), CONFIG, TransferOptions::default());
+        let args = transfer_args(
+            &job,
+            "media",
+            &settings(),
+            CONFIG,
+            TransferOptions::default(),
+        );
 
         assert_eq!(
             args,
@@ -384,7 +402,13 @@ mod tests {
         );
         job.direction = Direction::Pull;
 
-        let args = transfer_args(&job, &settings(), CONFIG, TransferOptions::default());
+        let args = transfer_args(
+            &job,
+            "media",
+            &settings(),
+            CONFIG,
+            TransferOptions::default(),
+        );
         assert_eq!(args[2], "copy");
         assert_eq!(args[3], "media:backups/2024");
         assert_eq!(args[4], "/srv/restore");
@@ -401,13 +425,25 @@ mod tests {
         );
         job.direction = Direction::Pull;
 
-        let first = transfer_args(&job, &settings(), CONFIG, TransferOptions { resync: true });
+        let first = transfer_args(
+            &job,
+            "media",
+            &settings(),
+            CONFIG,
+            TransferOptions { resync: true },
+        );
         assert_eq!(first[2], "bisync");
         assert_eq!(first[3], "/home/me/notes");
         assert_eq!(first[4], "media:notes");
         assert!(first.contains(&"--resync".to_string()));
 
-        let later = transfer_args(&job, &settings(), CONFIG, TransferOptions::default());
+        let later = transfer_args(
+            &job,
+            "media",
+            &settings(),
+            CONFIG,
+            TransferOptions::default(),
+        );
         assert!(!later.contains(&"--resync".to_string()));
     }
 
@@ -420,7 +456,13 @@ mod tests {
             "photos",
             "/home/me/Pictures",
         );
-        let args = transfer_args(&sync, &settings(), CONFIG, TransferOptions { resync: true });
+        let args = transfer_args(
+            &sync,
+            "media",
+            &settings(),
+            CONFIG,
+            TransferOptions { resync: true },
+        );
         assert!(!args.contains(&"--resync".to_string()));
 
         let copy = Job::new(
@@ -430,7 +472,13 @@ mod tests {
             "photos",
             "/home/me/Pictures",
         );
-        let args = transfer_args(&copy, &settings(), CONFIG, TransferOptions { resync: true });
+        let args = transfer_args(
+            &copy,
+            "media",
+            &settings(),
+            CONFIG,
+            TransferOptions { resync: true },
+        );
         assert!(!args.contains(&"--resync".to_string()));
     }
 
@@ -443,7 +491,7 @@ mod tests {
             bandwidth_limit: Some("8M".into()),
         };
 
-        let args = transfer_args(&job, &settings, CONFIG, TransferOptions::default());
+        let args = transfer_args(&job, "media", &settings, CONFIG, TransferOptions::default());
         assert_eq!(
             &args[0..7],
             [
@@ -467,7 +515,7 @@ mod tests {
             bandwidth_limit: None,
         };
 
-        let args = transfer_args(&job, &settings, CONFIG, TransferOptions::default());
+        let args = transfer_args(&job, "media", &settings, CONFIG, TransferOptions::default());
 
         assert!(args.contains(&"--transfers".to_string()), "{args:?}");
         assert!(args.contains(&"8".to_string()), "{args:?}");
@@ -486,7 +534,7 @@ mod tests {
             ..Settings::default()
         };
 
-        let args = transfer_args(&job, &settings, CONFIG, TransferOptions::default());
+        let args = transfer_args(&job, "media", &settings, CONFIG, TransferOptions::default());
 
         assert_eq!(args[0], "--config");
         assert_eq!(args[1], CONFIG, "the app config path was replaced");
@@ -507,7 +555,7 @@ mod tests {
             bandwidth_limit: Some("   ".into()),
             ..Settings::default()
         };
-        let args = transfer_args(&job, &settings, CONFIG, TransferOptions::default());
+        let args = transfer_args(&job, "media", &settings, CONFIG, TransferOptions::default());
         assert!(!args.contains(&"--bwlimit".to_string()));
     }
 
@@ -517,7 +565,7 @@ mod tests {
         mount.read_only = true;
         mount.vfs_cache_mode = VfsCacheMode::Full;
 
-        let args = mount_args(&mount, &settings(), CONFIG, &Os::Linux);
+        let args = mount_args(&mount, "media", &settings(), CONFIG, &Os::Linux);
         assert_eq!(
             args,
             vec![
@@ -543,12 +591,14 @@ mod tests {
         let mut mount = Mount::new("Media", "media", "", "/mnt/media");
         mount.allow_other = true;
 
-        assert!(mount_args(&mount, &settings(), CONFIG, &Os::Linux)
+        assert!(mount_args(&mount, "media", &settings(), CONFIG, &Os::Linux)
             .contains(&"--allow-other".to_string()));
-        assert!(mount_args(&mount, &settings(), CONFIG, &Os::Macos)
+        assert!(mount_args(&mount, "media", &settings(), CONFIG, &Os::Macos)
             .contains(&"--allow-other".to_string()));
-        assert!(!mount_args(&mount, &settings(), CONFIG, &Os::Windows)
-            .contains(&"--allow-other".to_string()));
+        assert!(
+            !mount_args(&mount, "media", &settings(), CONFIG, &Os::Windows)
+                .contains(&"--allow-other".to_string())
+        );
     }
 
     #[test]

@@ -62,10 +62,16 @@ fn prepare(
         .ok_or_else(|| format!("Job '{job_id}' no longer exists."))?;
     validate::validate_job(&state, &job)?;
 
+    // The job holds the id of its remote; rclone needs its name.
+    let remote = state
+        .find_remote_by_id(&job.remote_id)
+        .ok_or_else(|| "The bucket this job uses no longer exists.".to_string())?;
+
     let rclone = context.rclone();
     rclone.program()?;
     let args = rclone::transfer_args(
         &job,
+        &remote.name,
         &state.settings,
         &context.paths.conf_arg(),
         TransferOptions { resync },

@@ -15,7 +15,7 @@ fn a_flag_line_with_a_value_splits_into_two_arguments() {
         ..Settings::default()
     };
 
-    let args = transfer_args(&job, &settings, CONFIG, TransferOptions::default());
+    let args = transfer_args(&job, "media", &settings, CONFIG, TransferOptions::default());
 
     assert!(args.contains(&"--transfers".to_string()), "{args:?}");
     assert!(args.contains(&"8".to_string()), "{args:?}");

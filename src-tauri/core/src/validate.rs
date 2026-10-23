@@ -200,8 +200,8 @@ pub fn validate_job(state: &AppState, job: &Job) -> Result<(), String> {
     if job.name.trim().is_empty() {
         return Err("Job name cannot be empty.".into());
     }
-    if state.find_remote(&job.remote).is_none() {
-        return Err(format!("Remote '{}' no longer exists.", job.remote));
+    if state.find_remote_by_id(&job.remote_id).is_none() {
+        return Err("The bucket this job uses no longer exists.".into());
     }
     remote_path(&job.remote_path)?;
     local_path(&job.local_path)?;
@@ -228,8 +228,8 @@ pub fn validate_mount(state: &AppState, mount: &Mount) -> Result<(), String> {
     if mount.name.trim().is_empty() {
         return Err("Mount name cannot be empty.".into());
     }
-    if state.find_remote(&mount.remote).is_none() {
-        return Err(format!("Remote '{}' no longer exists.", mount.remote));
+    if state.find_remote_by_id(&mount.remote_id).is_none() {
+        return Err("The bucket this mount uses no longer exists.".into());
     }
     remote_path(&mount.remote_path)?;
     mount_point(&mount.mount_point)?;
@@ -329,22 +329,23 @@ mod tests {
     #[test]
     fn validate_job_reports_the_first_problem_clearly() {
         let mut state = AppState::default();
-        state.remotes.push(Remote::new("media", "AKIA"));
+        let remote = Remote::new("media", "AKIA");
+        state.remotes.push(remote.clone());
 
         let mut job = Job::new(
             "Photos",
             JobKind::Sync,
-            "media",
+            remote.id.clone(),
             "photos",
             "/home/me/Pictures",
         );
         assert!(validate_job(&state, &job).is_ok());
 
-        job.remote = "gone".into();
+        job.remote_id = "gone".into();
         let err = validate_job(&state, &job).unwrap_err();
-        assert!(err.contains("'gone' no longer exists"), "{err}");
+        assert!(err.contains("no longer exists"), "{err}");
 
-        job.remote = "media".into();
+        job.remote_id = remote.id.clone();
         job.local_path = "relative".into();
         let err = validate_job(&state, &job).unwrap_err();
         assert!(err.contains("absolute path"), "{err}");
@@ -358,15 +359,19 @@ mod tests {
     #[test]
     fn a_job_cannot_point_inside_a_mount_point() {
         let mut state = AppState::default();
-        state.remotes.push(Remote::new("media", "AKIA"));
-        state
-            .mounts
-            .push(Mount::new("Media", "media", "photos", "/mnt/media"));
+        let remote = Remote::new("media", "AKIA");
+        state.remotes.push(remote.clone());
+        state.mounts.push(Mount::new(
+            "Media",
+            remote.id.clone(),
+            "photos",
+            "/mnt/media",
+        ));
 
         let mut job = Job::new(
             "Photos",
             JobKind::Copy,
-            "media",
+            remote.id.clone(),
             "photos",
             "/mnt/media/photos",
         );
@@ -383,9 +388,10 @@ mod tests {
     #[test]
     fn validate_mount_checks_remote_path_and_mount_point() {
         let mut state = AppState::default();
-        state.remotes.push(Remote::new("media", "AKIA"));
+        let remote = Remote::new("media", "AKIA");
+        state.remotes.push(remote.clone());
 
-        let mut mount = Mount::new("Media", "media", "photos", "/mnt/media");
+        let mut mount = Mount::new("Media", remote.id.clone(), "photos", "/mnt/media");
         mount.vfs_cache_mode = VfsCacheMode::Full;
         assert!(validate_mount(&state, &mount).is_ok());
 
@@ -416,12 +422,13 @@ mod tests {
     #[test]
     fn duplicate_mount_points_are_caught_after_normalization() {
         let mut state = AppState::default();
-        state.remotes.push(Remote::new("media", "AKIA"));
+        let remote = Remote::new("media", "AKIA");
+        state.remotes.push(remote.clone());
         state
             .mounts
-            .push(Mount::new("A", "media", "a", "/mnt/shared"));
+            .push(Mount::new("A", remote.id.clone(), "a", "/mnt/shared"));
 
-        let mut second = Mount::new("B", "media", "b", "/mnt/shared/../shared");
+        let mut second = Mount::new("B", remote.id.clone(), "b", "/mnt/shared/../shared");
         let error = validate_mount(&state, &second).unwrap_err();
         assert!(error.contains("overlaps or nests"), "{error}");
 

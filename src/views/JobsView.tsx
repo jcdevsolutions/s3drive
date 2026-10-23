@@ -23,7 +23,7 @@ interface Draft {
   name: string;
   kind: JobKind;
   direction: Direction;
-  remote: string;
+  remoteId: string;
   remotePath: string;
   localPath: string;
   dryRun: boolean;
@@ -58,7 +58,7 @@ function draftFrom(job: Job): Draft {
     name: job.name,
     kind: job.kind,
     direction: job.direction,
-    remote: job.remote,
+    remoteId: job.remoteId,
     remotePath: job.remotePath,
     localPath: job.localPath,
     dryRun: job.dryRun,
@@ -67,7 +67,7 @@ function draftFrom(job: Job): Draft {
   };
 }
 
-function emptyDraft(remote: string): Draft {
+function emptyDraft(remoteId: string): Draft {
   return {
     id: "",
     createdAtMs: 0,
@@ -75,7 +75,7 @@ function emptyDraft(remote: string): Draft {
     name: "",
     kind: "copy",
     direction: "push",
-    remote,
+    remoteId,
     remotePath: "",
     localPath: "",
     dryRun: false,
@@ -98,14 +98,20 @@ export default function JobsView() {
   const [saving, setSaving] = useState(false);
   const [browsing, setBrowsing] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [pendingRun, setPendingRun] = useState<{ job: Job; resync: boolean } | null>(null);
+  const [pendingRun, setPendingRun] = useState<{
+    job: Job;
+    resync: boolean;
+    target: string;
+  } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Job | null>(null);
 
   const update = (patch: Partial<Draft>) =>
     setDraft((current) => (current ? { ...current, ...patch } : current));
 
   const remoteOptions = state.remotes;
-  const selectedRemote = draft ? remoteOptions.find((remote) => remote.name === draft.remote) : undefined;
+  const selectedRemote = draft
+    ? remoteOptions.find((remote) => remote.id === draft.remoteId)
+    : undefined;
 
   const pickFolder = async () => {
     const picked = await open({
@@ -128,7 +134,7 @@ export default function JobsView() {
         name: draft.name,
         kind: draft.kind,
         direction: draft.direction,
-        remote: draft.remote,
+        remoteId: draft.remoteId,
         remotePath: draft.remotePath,
         localPath: draft.localPath,
         dryRun: draft.dryRun,
@@ -157,13 +163,18 @@ export default function JobsView() {
     }
   };
 
+  const targetOf = (job: Job): string => {
+    const bucket = state.remotes.find((remote) => remote.id === job.remoteId);
+    return bucket ? joinRemotePath(bucket.name, job.remotePath) : "the bucket was removed";
+  };
+
   const requestRun = (job: Job) => {
     const destructive = job.kind === "sync" && !job.dryRun;
     // A baseline only counts when it actually completed; a failed or dry first run
     // must still be able to establish one later.
     const needsResync = job.kind === "bisync" && job.lastRun?.outcome !== "success";
     if (destructive || needsResync) {
-      setPendingRun({ job, resync: needsResync });
+      setPendingRun({ job, resync: needsResync, target: targetOf(job) });
       return;
     }
     void startRun(job, false);
@@ -208,7 +219,7 @@ export default function JobsView() {
           type="button"
           className="button button--primary"
           disabled={remoteOptions.length === 0}
-          onClick={() => setDraft(emptyDraft(remoteOptions[0]?.name ?? ""))}
+          onClick={() => setDraft(emptyDraft(remoteOptions[0]?.id ?? ""))}
         >
           New job
         </button>
@@ -232,6 +243,10 @@ export default function JobsView() {
             const lines = logs[job.id] ?? [];
             const isOpen = expanded[job.id] ?? false;
             const info = KIND_INFO[job.kind];
+            const bucket = state.remotes.find((remote) => remote.id === job.remoteId);
+            const target = bucket
+              ? joinRemotePath(bucket.name, job.remotePath)
+              : "the bucket was removed";
             return (
               <article className="card card--wide" key={job.id}>
                 <header className="card__header">
@@ -244,10 +259,10 @@ export default function JobsView() {
                     </div>
                     <p className="card__meta mono">
                       {job.kind === "bisync"
-                        ? `${job.localPath} ⇄ ${joinRemotePath(job.remote, job.remotePath)}`
+                        ? `${job.localPath} ⇄ ${target}`
                         : job.direction === "push"
-                          ? `${job.localPath} → ${joinRemotePath(job.remote, job.remotePath)}`
-                          : `${joinRemotePath(job.remote, job.remotePath)} → ${job.localPath}`}
+                          ? `${job.localPath} → ${target}`
+                          : `${target} → ${job.localPath}`}
                     </p>
                   </div>
                 </header>
@@ -294,7 +309,9 @@ export default function JobsView() {
                       type="button"
                       className="button"
                       disabled={Boolean(running)}
-                      onClick={() => setPendingRun({ job, resync: true })}
+                      onClick={() =>
+                        setPendingRun({ job, resync: true, target: targetOf(job) })
+                      }
                       title="Re-record the bisync baseline with --resync"
                     >
                       Re-sync baseline
@@ -359,11 +376,11 @@ export default function JobsView() {
             <Field label="Bucket">
               <select
                 className="input"
-                value={draft.remote}
-                onChange={(event) => update({ remote: event.target.value, remotePath: "" })}
+                value={draft.remoteId}
+                onChange={(event) => update({ remoteId: event.target.value, remotePath: "" })}
               >
                 {remoteOptions.map((remote) => (
-                  <option key={remote.id} value={remote.name}>
+                  <option key={remote.id} value={remote.id}>
                     {remote.name}
                   </option>
                 ))}
@@ -406,7 +423,10 @@ export default function JobsView() {
             </Field>
           ) : null}
 
-          <Field label="Bucket and folder" hint={selectedRemote ? `${draft.remote}:${draft.remotePath}` : undefined}>
+          <Field
+            label="Bucket and folder"
+            hint={selectedRemote ? `${selectedRemote.name}:${draft.remotePath}` : undefined}
+          >
             <div className="input-row">
               <input
                 className="input mono"
@@ -499,7 +519,7 @@ export default function JobsView() {
                 ? "This run records the bisync baseline with --resync. Deletions propagate in both directions on later runs, so make sure both sides hold what you expect."
                 : "rclone bisync moves changes both ways and propagates deletions. Files deleted on one side are removed on the other."
           }
-          detail={`${pendingRun.job.localPath}\n${joinRemotePath(pendingRun.job.remote, pendingRun.job.remotePath)}`}
+          detail={`${pendingRun.job.localPath}\n${pendingRun.target}`}
           confirmLabel={
             pendingRun.job.kind === "sync"
               ? "Run mirror anyway"

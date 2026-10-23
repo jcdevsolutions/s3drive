@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { S3DiveProvider, useApp } from "./store";
+import { Banner } from "./components/ui";
 import BucketsView from "./views/BucketsView";
 import JobsView from "./views/JobsView";
 import MountsView from "./views/MountsView";
@@ -36,7 +37,7 @@ function NoticeBar() {
 }
 
 function Shell() {
-  const { state, rclone, fuse, runtimes, runs } = useApp();
+  const { state, rclone, fuse, runtimes, runs, dangling } = useApp();
   const [view, setView] = useState<ViewKey>("buckets");
 
   const runningMounts = Object.values(runtimes).filter((runtime) => runtime.running).length;
@@ -92,6 +93,19 @@ function Shell() {
 
       <main className="main">
         <NoticeBar />
+        {dangling.length > 0 ? (
+          <Banner tone="warning" title="Some jobs or mounts lost their bucket">
+            <p>
+              These entries point at a bucket that no longer exists. They are left
+              untouched: pick another bucket and save them to use them again.
+            </p>
+            <ul>
+              {dangling.map((entry) => (
+                <li key={entry}>{entry}</li>
+              ))}
+            </ul>
+          </Banner>
+        ) : null}
         {view === "buckets" ? <BucketsView /> : null}
         {view === "jobs" ? <JobsView /> : null}
         {view === "mounts" ? <MountsView /> : null}

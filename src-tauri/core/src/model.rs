@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Version of the on-disk application state.
-pub const STATE_VERSION: u32 = 1;
+///
+/// v2 replaces the remote name in a job or a mount with the id of the remote.
+pub const STATE_VERSION: u32 = 2;
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
@@ -155,7 +157,16 @@ pub struct Job {
     pub kind: JobKind,
     #[serde(default)]
     pub direction: Direction,
-    pub remote: String,
+    /// The id of the remote this job transfers to or from.
+    ///
+    /// The id, not the name: a name can be changed, and a job that follows a
+    /// renamed bucket would move to a different one without the user asking.
+    #[serde(default)]
+    pub remote_id: String,
+    /// The remote name used before schema v2. It is read to migrate an old state
+    /// file and is never written back.
+    #[serde(default, rename = "remote", skip_serializing)]
+    pub legacy_remote: String,
     /// Bucket and optional prefix, without a leading slash.
     #[serde(default)]
     pub remote_path: String,
@@ -175,7 +186,7 @@ impl Job {
     pub fn new(
         name: impl Into<String>,
         kind: JobKind,
-        remote: impl Into<String>,
+        remote_id: impl Into<String>,
         remote_path: impl Into<String>,
         local_path: impl Into<String>,
     ) -> Self {
@@ -184,7 +195,8 @@ impl Job {
             name: name.into(),
             kind,
             direction: Direction::default(),
-            remote: remote.into(),
+            remote_id: remote_id.into(),
+            legacy_remote: String::new(),
             remote_path: remote_path.into(),
             local_path: local_path.into(),
             dry_run: false,
@@ -222,7 +234,13 @@ impl VfsCacheMode {
 pub struct Mount {
     pub id: String,
     pub name: String,
-    pub remote: String,
+    /// The id of the remote this mount exposes.
+    #[serde(default)]
+    pub remote_id: String,
+    /// The remote name used before schema v2. It is read to migrate an old state
+    /// file and is never written back.
+    #[serde(default, rename = "remote", skip_serializing)]
+    pub legacy_remote: String,
     /// Bucket and optional prefix, without a leading slash.
     #[serde(default)]
     pub remote_path: String,
@@ -242,14 +260,15 @@ pub struct Mount {
 impl Mount {
     pub fn new(
         name: impl Into<String>,
-        remote: impl Into<String>,
+        remote_id: impl Into<String>,
         remote_path: impl Into<String>,
         mount_point: impl Into<String>,
     ) -> Self {
         Self {
             id: new_id(),
             name: name.into(),
-            remote: remote.into(),
+            remote_id: remote_id.into(),
+            legacy_remote: String::new(),
             remote_path: remote_path.into(),
             mount_point: mount_point.into(),
             auto_mount: false,
@@ -335,6 +354,11 @@ impl AppState {
         self.remotes.iter().find(|remote| remote.name == name)
     }
 
+    /// The remote a job or a mount points at.
+    pub fn find_remote_by_id(&self, id: &str) -> Option<&Remote> {
+        self.remotes.iter().find(|remote| remote.id == id)
+    }
+
     pub fn find_job(&self, id: &str) -> Option<&Job> {
         self.jobs.iter().find(|job| job.id == id)
     }
@@ -351,9 +375,62 @@ impl AppState {
     }
 
     /// Every remote a job or mount points at must still exist.
-    pub fn references_remote(&self, name: &str) -> bool {
-        self.jobs.iter().any(|job| job.remote == name)
-            || self.mounts.iter().any(|mount| mount.remote == name)
+    pub fn references_remote(&self, id: &str) -> bool {
+        self.jobs.iter().any(|job| job.remote_id == id)
+            || self.mounts.iter().any(|mount| mount.remote_id == id)
+    }
+
+    /// Jobs and mounts whose remote is gone.
+    ///
+    /// They are reported instead of being re-pointed at another bucket: a
+    /// transfer that silently changes its source is worse than one that stops.
+    pub fn dangling_references(&self) -> Vec<String> {
+        let mut dangling = Vec::new();
+        for job in &self.jobs {
+            if self.find_remote_by_id(&job.remote_id).is_none() {
+                dangling.push(format!("Job '{}' has no bucket.", job.name));
+            }
+        }
+        for mount in &self.mounts {
+            if self.find_remote_by_id(&mount.remote_id).is_none() {
+                dangling.push(format!("Mount '{}' has no bucket.", mount.name));
+            }
+        }
+        dangling
+    }
+
+    /// Resolve the pre-v2 remote names into remote ids.
+    ///
+    /// Before schema v2 a job and a mount stored the name of their remote, and
+    /// the name was a mutable key: renaming a bucket moved every job that used
+    /// it. The name is resolved once, here, and the id takes over from then on.
+    /// A reference whose remote is gone keeps an empty id and is reported by
+    /// `dangling_references`.
+    pub fn migrate_references(&mut self) {
+        let by_name: std::collections::HashMap<&str, &str> = self
+            .remotes
+            .iter()
+            .map(|remote| (remote.name.as_str(), remote.id.as_str()))
+            .collect();
+
+        for job in self.jobs.iter_mut() {
+            if job.remote_id.is_empty() && !job.legacy_remote.is_empty() {
+                job.remote_id = by_name
+                    .get(job.legacy_remote.as_str())
+                    .map(|id| id.to_string())
+                    .unwrap_or_default();
+            }
+        }
+        for mount in self.mounts.iter_mut() {
+            if mount.remote_id.is_empty() && !mount.legacy_remote.is_empty() {
+                mount.remote_id = by_name
+                    .get(mount.legacy_remote.as_str())
+                    .map(|id| id.to_string())
+                    .unwrap_or_default();
+            }
+        }
+
+        self.schema_version = STATE_VERSION;
     }
 }
 

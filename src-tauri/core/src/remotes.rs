@@ -46,27 +46,13 @@ pub fn plan_remote_update(state: &AppState, incoming: Remote) -> Result<PlannedR
 /// Apply a prepared remote save to the state.
 ///
 /// The name is the rclone config section name, so it must stay unique. A rename
-/// rewrites the jobs and mounts that point at the remote.
+/// changes the name only: the jobs and mounts that use this remote keep pointing
+/// at its id, so they follow the bucket the user renamed.
 pub fn apply_remote_update(state: &mut AppState, planned: &PlannedRemote) -> Result<(), String> {
     let record = &planned.record;
 
     if state.remote_name_taken(&record.name, Some(record.id.as_str())) {
         return Err(format!("A bucket named '{}' already exists.", record.name));
-    }
-
-    if let Some(old_name) = planned.previous_name.as_deref() {
-        if old_name != record.name {
-            for job in state.jobs.iter_mut() {
-                if job.remote == old_name {
-                    job.remote = record.name.clone();
-                }
-            }
-            for mount in state.mounts.iter_mut() {
-                if mount.remote == old_name {
-                    mount.remote = record.name.clone();
-                }
-            }
-        }
     }
 
     match state.remotes.iter().position(|c| c.id == record.id) {
@@ -167,27 +153,32 @@ mod tests {
     }
 
     #[test]
-    fn renaming_a_bucket_keeps_jobs_and_mounts_pointing_at_it() {
+    fn renaming_a_bucket_keeps_the_jobs_pointing_at_the_same_bucket() {
         let mut state = AppState::default();
         state.remotes.push(remote_with_id("r1", "media"));
         state.jobs.push(Job::new(
             "Photos",
             JobKind::Sync,
-            "media",
+            "r1",
             "photos",
             "/home/me/Pictures",
         ));
         state
             .mounts
-            .push(Mount::new("Media", "media", "photos", "/mnt/media"));
+            .push(Mount::new("Media", "r1", "photos", "/mnt/media"));
 
         let renamed = remote_with_id("r1", "pictures");
         let planned = plan_remote_update(&state, renamed).expect("plan");
         apply_remote_update(&mut state, &planned).expect("apply");
 
         assert_eq!(state.remotes[0].name, "pictures");
-        assert_eq!(state.jobs[0].remote, "pictures");
-        assert_eq!(state.mounts[0].remote, "pictures");
+        // The jobs keep the id, so they follow the bucket the user renamed.
+        assert_eq!(state.jobs[0].remote_id, "r1");
+        assert_eq!(state.mounts[0].remote_id, "r1");
+        let remote = state
+            .find_remote_by_id(&state.jobs[0].remote_id)
+            .expect("the remote the job uses");
+        assert_eq!(remote.name, "pictures");
     }
 
     #[test]
@@ -197,7 +188,7 @@ mod tests {
         state.jobs.push(Job::new(
             "Photos",
             JobKind::Sync,
-            "media",
+            "r1",
             "photos",
             "/home/me/Pictures",
         ));
@@ -208,7 +199,7 @@ mod tests {
         apply_remote_update(&mut state, &planned).expect("apply");
 
         assert_eq!(
-            state.jobs[0].remote, "media",
+            state.jobs[0].remote_id, "r1",
             "the job was repointed at another bucket"
         );
     }
