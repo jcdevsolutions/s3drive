@@ -364,8 +364,9 @@ export default function JobsView() {
           {formError ? <Banner tone="danger" title="Could not save">{formError}</Banner> : null}
 
           <div className="form-grid">
-            <Field label="Job name">
+            <Field label="Job name" htmlFor="job-name">
               <input
+                id="job-name"
                 className="input"
                 value={draft.name}
                 placeholder="Photos to S3"
@@ -373,8 +374,9 @@ export default function JobsView() {
               />
             </Field>
 
-            <Field label="Bucket">
+            <Field label="Bucket" htmlFor="job-remote">
               <select
+                id="job-remote"
                 className="input"
                 value={draft.remoteId}
                 onChange={(event) => update({ remoteId: event.target.value, remotePath: "" })}
@@ -403,32 +405,45 @@ export default function JobsView() {
           </div>
 
           {draft.kind !== "bisync" ? (
-            <Field label="Direction">
+            <fieldset className="field field--group">
+              <legend className="field__label">Direction</legend>
               <div className="segmented">
-                <button
-                  type="button"
+                <label
                   className={`segmented__option${draft.direction === "push" ? " segmented__option--active" : ""}`}
-                  onClick={() => update({ direction: "push" })}
                 >
+                  <input
+                    className="visually-hidden"
+                    type="radio"
+                    name="job-direction"
+                    checked={draft.direction === "push"}
+                    onChange={() => update({ direction: "push" })}
+                  />
                   Local folder → bucket
-                </button>
-                <button
-                  type="button"
+                </label>
+                <label
                   className={`segmented__option${draft.direction === "pull" ? " segmented__option--active" : ""}`}
-                  onClick={() => update({ direction: "pull" })}
                 >
+                  <input
+                    className="visually-hidden"
+                    type="radio"
+                    name="job-direction"
+                    checked={draft.direction === "pull"}
+                    onChange={() => update({ direction: "pull" })}
+                  />
                   Bucket → local folder
-                </button>
+                </label>
               </div>
-            </Field>
+            </fieldset>
           ) : null}
 
           <Field
             label="Bucket and folder"
+            htmlFor="job-remote-path"
             hint={selectedRemote ? `${selectedRemote.name}:${draft.remotePath}` : undefined}
           >
             <div className="input-row">
               <input
+                id="job-remote-path"
                 className="input mono"
                 value={draft.remotePath}
                 placeholder="bucket/optional/folder (empty = all buckets)"
@@ -445,9 +460,10 @@ export default function JobsView() {
             </div>
           </Field>
 
-          <Field label="Local folder">
+          <Field label="Local folder" htmlFor="job-local-path">
             <div className="input-row">
               <input
+                id="job-local-path"
                 className="input mono"
                 value={draft.localPath}
                 placeholder="/home/you/Pictures"
@@ -460,8 +476,9 @@ export default function JobsView() {
           </Field>
 
           <div className="form-grid">
-            <Field label="Include patterns" hint="One per line, rclone glob syntax. Empty means everything.">
+            <Field label="Include patterns" htmlFor="job-include" hint="One per line, rclone glob syntax. Empty means everything.">
               <textarea
+                id="job-include"
                 className="input input--area mono"
                 value={draft.include}
                 rows={3}
@@ -469,8 +486,9 @@ export default function JobsView() {
                 onChange={(event) => update({ include: event.target.value })}
               />
             </Field>
-            <Field label="Exclude patterns" hint="One per line. Applied after includes.">
+            <Field label="Exclude patterns" htmlFor="job-exclude" hint="One per line. Applied after includes.">
               <textarea
+                id="job-exclude"
                 className="input input--area mono"
                 value={draft.exclude}
                 rows={3}

@@ -106,9 +106,10 @@ export default function SettingsView() {
 
       <article className="card card--inline">
         <h2>rclone location</h2>
-        <Field label="Binary path" hint="Leave empty to use the rclone found on PATH.">
+        <Field label="Binary path" htmlFor="settings-rclone-path" hint="Leave empty to use the rclone found on PATH.">
           <div className="input-row">
             <input
+              id="settings-rclone-path"
               className="input mono"
               value={rclonePath}
               placeholder="/usr/local/bin/rclone"
@@ -121,8 +122,9 @@ export default function SettingsView() {
         </Field>
 
         <div className="form-grid">
-          <Field label="Bandwidth limit" hint="Passed as --bwlimit, for example 8M or 500k.">
+          <Field label="Bandwidth limit" htmlFor="settings-bandwidth" hint="Passed as --bwlimit, for example 8M or 500k.">
             <input
+              id="settings-bandwidth"
               className="input mono"
               value={bandwidth}
               placeholder="unlimited"
@@ -131,9 +133,11 @@ export default function SettingsView() {
           </Field>
           <Field
             label="Extra flags"
+            htmlFor="settings-flags"
             hint="One flag per line. A value may follow on the same line. Applied to every sync, copy, bisync and mount."
           >
             <textarea
+              id="settings-flags"
               className="input input--area mono"
               rows={3}
               value={flags}

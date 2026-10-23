@@ -234,8 +234,9 @@ export default function BucketsView() {
           {formError ? <Banner tone="danger" title="Could not save">{formError}</Banner> : null}
 
           <div className="form-grid">
-            <Field label="Name" hint="Used as the rclone remote name: letters, digits, - _ . +">
+            <Field label="Name" htmlFor="bucket-name" hint="Used as the rclone remote name: letters, digits, - _ . +">
               <input
+                id="bucket-name"
                 className="input"
                 value={draft.name}
                 placeholder="media"
@@ -243,8 +244,9 @@ export default function BucketsView() {
               />
             </Field>
 
-            <Field label="Provider">
+            <Field label="Provider" htmlFor="bucket-provider">
               <select
+                id="bucket-provider"
                 className="input"
                 value={draft.provider}
                 onChange={(event) => {
@@ -261,8 +263,9 @@ export default function BucketsView() {
             </Field>
 
             {isCompatible ? (
-              <Field label="Endpoint" hint="For example https://minio.local:9000">
+              <Field label="Endpoint" htmlFor="bucket-endpoint" hint="For example https://minio.local:9000">
                 <input
+                  id="bucket-endpoint"
                   className="input"
                   value={draft.endpoint}
                   placeholder="https://s3.example.com"
@@ -271,8 +274,9 @@ export default function BucketsView() {
               </Field>
             ) : null}
 
-            <Field label="Region">
+            <Field label="Region" htmlFor="bucket-region">
               <input
+                id="bucket-region"
                 className="input"
                 value={draft.region}
                 placeholder="us-east-1"
@@ -280,8 +284,9 @@ export default function BucketsView() {
               />
             </Field>
 
-            <Field label="Access key ID">
+            <Field label="Access key ID" htmlFor="bucket-access-key">
               <input
+                id="bucket-access-key"
                 className="input mono"
                 value={draft.accessKeyId}
                 placeholder="AKIA…"
@@ -293,9 +298,11 @@ export default function BucketsView() {
 
             <Field
               label="Secret access key"
+              htmlFor="bucket-secret"
               hint={draft.id ? "Leave empty to keep the stored secret." : "Written to S3Dive's own rclone.conf."}
             >
               <input
+                id="bucket-secret"
                 className="input mono"
                 type="password"
                 value={draft.secret}

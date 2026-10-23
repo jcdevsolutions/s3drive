@@ -66,9 +66,9 @@ src-tauri/core/Cargo.toml` (headless), `cargo test --manifest-path src-tauri/Car
 | T8 | S7 | inline | pending | pending: reject control characters in the secret |
 | T9 | S8 | inline | pending | pending: labels associated + modal focus trap |
 | T10 | S9 | inline | pending | pending: P3 cleanups |
-| T11 | S10 | inline | pending | pending: `remoteId` on jobs and mounts, schema v2 + migration in the core |
-| T12 | S10 | inline | pending | pending: commands and rclone arg builders resolve the remote by id |
-| T13 | S10 | inline | pending | pending: the UI sends and shows `remoteId` instead of the name |
+| T11 | S10 | inline | c793707 | done: `remoteId` on jobs and mounts, schema v2 + load-time migration in the core + 3 migration tests |
+| T12 | S10 | inline | c793707 | done: commands, arg builders and the shell resolve the remote by id |
+| T13 | S10 | inline | c793707 | done: the UI picks the bucket by id, shows the resolved name and reports dangling references |
 
 ## Log
 
@@ -186,3 +186,61 @@ the design was already fixed in L9):
 - Correction made during the unit: the first version of the rollback test created a directory
   where `state.json` already existed as a file, so the test failed on its own setup, not on
   the behaviour. Fixed by removing the file first.
+
+L13 (work unit 4 — remote references by id, delivered in `c793707`):
+
+- The model change: `Job` and `Mount` carry `remoteId`; the pre-v2 name is read as
+  `legacy_remote` (`#[serde(default, rename = "remote", skip_serializing)]`) and is never
+  written back. `STATE_VERSION` is 2.
+- The migration lives in `AppState::migrate_references`, called by `load_state`. It resolves
+  the old names into ids and leaves a reference whose bucket is gone with an empty id, so it
+  is reported by `AppState::dangling_references` (surfaced by `bootstrap` and a banner in the
+  UI) and never re-pointed at another bucket.
+- `transfer_args` and `mount_args` take the remote name as an argument now: the job carries
+  the id, and the command layer resolves it before building the command line.
+- `apply_remote_update` lost the rename rewrite. With ids, a rename changes the name and the
+  jobs follow the bucket, because they still point at its id.
+- New core tests: `an_old_state_file_names_its_remotes_and_is_migrated`,
+  `an_old_state_file_with_a_missing_remote_is_reported_not_repointed`,
+  `the_saved_state_references_a_remote_by_id`.
+- End-to-end proof with a scratch program against the real crate: a schema v1 file loads as
+  v2 with the ids resolved, a rename keeps the job on the same bucket, and the saved file
+  carries `remoteId` and no `remote`.
+- Evidence: core 75 unit + 5 + 6 integration tests, shell 8 tests, all green; clippy
+  `-D warnings` clean on both crates; `cargo fmt --check` clean; `pnpm build` green.
+- Defect caught while reviewing the UI diff, invisible to the type checker because both are
+  strings: the "New job" and "New mount" buttons still passed the bucket NAME where the id
+  was expected, which would have made every new job point at a bucket that does not exist.
+  Fixed before the commit.
+- Correction made during the unit: the first `useState<string[]>([])` in `store.tsx` was
+  written with a stray brace (`useState<string[]>([]});`), which is a parse error in TSX.
+  Rewritten as `useState<Array<string>>([])`.
+
+L14 (work unit 5 — validation and accessibility, in flight):
+
+- T11: `validate::secret_access_key` refuses an empty secret and any control character in
+  it. The check runs on the secret the user typed, before the config file is written, so a
+  newline can no longer end the section and start another one. A secret read back from the
+  file is not re-validated: it is already in the file, and refusing it would lock the user
+  out of the bucket.
+  Tests: `a_secret_cannot_break_the_config_format` (core) and
+  `a_secret_with_a_newline_cannot_inject_a_config_section` (shell, asserts that neither the
+  section nor the bucket reached the disk).
+- T12: `useDialogFocus` in `src/components/ui.tsx` keeps Tab inside the dialog, moves the
+  focus to the dialog when it opens and gives it back to the control that opened it. Both
+  `Modal` and `ConfirmDialog` use it, so `aria-modal="true"` is now true of both.
+- The label wiring (every `Field` gets an `htmlFor` and its control an `id`) was delegated
+  to a bounded writer with the exact id scheme, while the parent did the focus trap and the
+  validation.
+
+L15 (work unit 6 — P3 cleanups, planned):
+
+- `job:finished` updates the job in the store from the payload it already carries, instead
+  of re-running `bootstrap`, which re-read the state file and spawned `rclone version`.
+- `platform` and `RcloneInfo.source` become typed enums on the wire instead of debug
+  strings, and the TypeScript side stops widening `source` with `| string`.
+- `src-tauri/Cargo.toml` becomes the workspace root with `core` as a member, so there is one
+  lockfile instead of two and the core's standalone test run stops creating its own.
+- `Remote::spec` and `AppState::find_remote` are removed (both dead after the id change) and
+  `JobKind::requires_direction` gets a caller: a bisync job always stores the default
+  direction.

@@ -181,7 +181,12 @@ fn save_remote_inner(
     // plaintext and never reveals an obscured value, so an obscured secret makes every
     // request fail with SignatureDoesNotMatch. The file is private and mode 0600.
     let secret = match secret {
-        Some(secret) => secret.to_string(),
+        Some(secret) => {
+            // A newline in the secret would end the config section and start
+            // another one, so it is refused before anything is written.
+            validate::secret_access_key(secret)?;
+            secret.to_string()
+        }
         None => rclone_conf::get_section(&current_conf, section_name)
             .and_then(|pairs| {
                 pairs
@@ -639,6 +644,30 @@ mod tests {
 
         assert_eq!(state.remotes.len(), 1);
         assert_eq!(state.remotes[0].name, "media");
+    }
+
+    #[test]
+    fn a_secret_with_a_newline_cannot_inject_a_config_section() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = context_in(dir.path());
+
+        let mut remote = Remote::new("media", "AKIAONE");
+        remote.id = String::new();
+        let error = save_remote_inner(
+            &context,
+            remote,
+            Some("abc\n[stolen]\ntype = s3\naccess_key_id = ATTACKER".into()),
+        )
+        .expect_err("the secret must be refused");
+
+        assert!(error.contains("invalid characters"), "{error}");
+
+        let conf = std::fs::read_to_string(context.paths.rclone_conf()).unwrap_or_default();
+        assert!(
+            !conf.contains("[stolen]"),
+            "the section was written: {conf}"
+        );
+        assert_eq!(context.state().remotes.len(), 0, "the bucket was saved");
     }
 
     #[test]

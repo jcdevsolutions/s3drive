@@ -1,5 +1,57 @@
 import { useEffect, useEffectEvent, useRef } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
+
+/** The controls a keyboard can reach inside a dialog. */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Keep the keyboard inside a dialog and give the focus back when it closes.
+ *
+ * A modal that declares `aria-modal` has to behave like one: Tab must not walk
+ * into the page behind it, and the control that opened the dialog must get the
+ * focus back.
+ */
+function useDialogFocus(ref: RefObject<HTMLElement | null>, onEscape: () => void) {
+  // The caller passes a fresh inline closure on every render. Reading it through
+  // an effect event keeps the subscription bound to mount only.
+  const close = useEffectEvent(onEscape);
+
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        close();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const items = Array.from(ref.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) {
+        event.preventDefault();
+        return;
+      }
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === ref.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    ref.current?.focus();
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previous?.focus();
+    };
+  }, []);
+}
 
 export function Badge({
   tone = "neutral",
@@ -82,20 +134,7 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Callers pass a fresh inline closure on every render. Reading it through an
-  // effect event keeps the subscription and the one-shot focus below bound to
-  // mount only: re-running them per render would steal focus from the field the
-  // user is typing in.
-  const close = useEffectEvent(onClose);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    window.addEventListener("keydown", onKey);
-    ref.current?.focus();
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useDialogFocus(ref, onClose);
 
   return (
     <div className="overlay" role="presentation" onMouseDown={onClose}>
@@ -141,6 +180,10 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useDialogFocus(ref, onCancel);
+
   return (
     <div className="overlay" role="presentation" onMouseDown={onCancel}>
       <div
@@ -148,6 +191,8 @@ export function ConfirmDialog({
         role="alertdialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
+        ref={ref}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="modal__header">

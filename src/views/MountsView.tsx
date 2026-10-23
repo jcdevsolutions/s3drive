@@ -319,8 +319,9 @@ export default function MountsView() {
           {formError ? <Banner tone="danger" title="Could not save">{formError}</Banner> : null}
 
           <div className="form-grid">
-            <Field label="Mount name">
+            <Field label="Mount name" htmlFor="mount-name">
               <input
+                id="mount-name"
                 className="input"
                 value={draft.name}
                 placeholder="Media drive"
@@ -328,8 +329,9 @@ export default function MountsView() {
               />
             </Field>
 
-            <Field label="Bucket">
+            <Field label="Bucket" htmlFor="mount-remote">
               <select
+                id="mount-remote"
                 className="input"
                 value={draft.remoteId}
                 onChange={(event) => update({ remoteId: event.target.value, remotePath: "" })}
@@ -345,10 +347,12 @@ export default function MountsView() {
 
           <Field
             label="Bucket and folder"
+            htmlFor="mount-remote-path"
             hint={selectedRemote ? `${selectedRemote.name}:${draft.remotePath}` : undefined}
           >
             <div className="input-row">
               <input
+                id="mount-remote-path"
                 className="input mono"
                 value={draft.remotePath}
                 placeholder="bucket/optional/folder (empty = all buckets)"
@@ -365,9 +369,10 @@ export default function MountsView() {
             </div>
           </Field>
 
-          <Field label="Mount point" hint="An existing, empty local directory.">
+          <Field label="Mount point" htmlFor="mount-point" hint="An existing, empty local directory.">
             <div className="input-row">
               <input
+                id="mount-point"
                 className="input mono"
                 value={draft.mountPoint}
                 placeholder="/home/you/mnt/media"
@@ -379,8 +384,9 @@ export default function MountsView() {
             </div>
           </Field>
 
-          <Field label="Cache mode">
+          <Field label="Cache mode" htmlFor="mount-cache">
             <select
+              id="mount-cache"
               className="input"
               value={draft.vfsCacheMode}
               onChange={(event) => update({ vfsCacheMode: event.target.value as VfsCacheMode })}

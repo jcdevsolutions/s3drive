@@ -168,6 +168,21 @@ pub fn extra_flags(flags: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// The secret access key.
+///
+/// It is written verbatim into the rclone config file, so a newline in it would
+/// end the section and start another one. A secret that can break the file
+/// format is refused here, before anything is written.
+pub fn secret_access_key(secret: &str) -> Result<(), String> {
+    if secret.trim().is_empty() {
+        return Err("Secret access key cannot be empty.".into());
+    }
+    if secret.chars().any(|c| c.is_control()) {
+        return Err("Secret access key contains invalid characters.".into());
+    }
+    Ok(())
+}
+
 pub fn validate_remote(remote: &Remote) -> Result<(), String> {
     remote_name(&remote.name)?;
     if remote.access_key_id.trim().is_empty() {
@@ -486,5 +501,20 @@ mod tests {
 
         remote.endpoint = Some("   ".into());
         assert!(validate_remote(&remote).is_ok());
+    }
+
+    #[test]
+    fn a_secret_cannot_break_the_config_format() {
+        assert!(secret_access_key("a-real-secret").is_ok());
+        assert!(secret_access_key("with/slash+and=equals").is_ok());
+
+        let empty = secret_access_key("   ").unwrap_err();
+        assert!(empty.contains("cannot be empty"), "{empty}");
+
+        let newline = secret_access_key("abc\n[stolen]\ntype = s3").unwrap_err();
+        assert!(newline.contains("invalid characters"), "{newline}");
+
+        let tab = secret_access_key("abc\tdef").unwrap_err();
+        assert!(tab.contains("invalid characters"), "{tab}");
     }
 }
