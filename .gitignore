@@ -9,6 +9,9 @@ src-tauri/target/
 src-tauri/core/target/
 src-tauri/gen/
 
+# Native review worktrees (rarely present)
+.review/
+
 # Local env
 .env
 .env.local

@@ -151,3 +151,21 @@ L5 (decisions taken during the build, not stated in the request):
   are the filesystem root, or when another mount already uses them.
 - Job and mount processes are terminated by pid inside the cancellation branch, because the
   awaited `wait()` future holds the child borrow for the whole `tokio::select!`.
+
+L11 (native review of core+shell, blocked on host config): lineage
+`review-df5280ed33aaa2aa` was created over the core+shell tree (73 paths, 4430 lines, tier
+high, lenses risk/resilience/reliability) in a linked worktree `.review/core-shell`
+(`master..ac7fe8f`). Capturing the lens artifacts is refused by the Pi host relay four times
+with `pi-host-relay-transport-failure` / `reviewer-config-invalid`: "no model is configured
+for review-risk". Nothing was mutated (`prepared_reviewers: 0`, `submitted_reviewers: 0`), no
+authority was consumed, and the lineage stays `reviewing`.
+
+Root cause and the fix attempted: the refusal is `review-host-relay.ts:616` when
+`request.selection` is empty; the selection comes from the agent model routing config, not
+from the reviewer agent frontmatter (`model:` there was tried and reverted, managed-asset
+hashes verified byte-identical). Two stores were then populated with the user's chosen
+routing (deepseek-v4-pro for review-risk, deepseek-flash for the others):
+`~/.pi/agent/subagents.json` (`model_profiles`) and `~/.pi/gentle-ai/profiles.json`
+(`kind: gentle-pi.agent_model_profiles`, `active: default`). The running session still
+refuses, so the relay reads that config at session start: a fresh Pi session is required
+before the lineage can be resumed.
