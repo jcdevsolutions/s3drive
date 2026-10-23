@@ -64,13 +64,14 @@ the others, and never blocks the UI.
 
 - S3Dive never touches your own `~/.config/rclone/rclone.conf`. It keeps a private
   `rclone.conf` and passes `--config <that file>` to every rclone invocation.
-- Secrets are passed to `rclone obscure` **on stdin**, so they never appear in process
-  arguments, and only the obscured value is written to disk. The plaintext secret is never
-  stored in S3Dive's state file, never logged, and never returned to the UI.
+- The secret access key is written **verbatim** to S3Dive's private `rclone.conf`:
+  rclone's s3 backend reads `secret_access_key` as plaintext and never reveals an obscured
+  value, so an obscured secret makes every request fail with `SignatureDoesNotMatch`. The
+  secret never enters process arguments, S3Dive's state file, the logs, or any value
+  returned to the UI.
 - `rclone.conf` and `state.json` are written atomically with mode `0600` on Unix.
-- rclone's obscuring is reversible by design: anyone who can read `rclone.conf` can recover
-  the secret. Treat that file like a credential — it is, and the Settings tab shows where it
-  lives.
+- That config file is a credential: anyone who can read it can read your S3 secrets. The
+  Settings tab shows where it lives.
 - `Mirror` deletes files that exist only at the destination. It always needs an explicit
   confirmation, and *Dry run* is one toggle away.
 - S3Dive refuses to mount over a non-empty directory, over a directory that overlaps any
@@ -179,7 +180,7 @@ Settings → *Reveal config folder* opens it.
 | --- | --- |
 | `rclone was not found` | Install rclone, or set the binary path in Settings and press *Re-check*. |
 | `Access denied` on a bucket | The key is valid but lacks `s3:ListBucket`/`s3:GetObject` on that bucket. |
-| `Signature mismatch` | The secret does not match the access key ID — re-enter the secret on the bucket. |
+| `Signature mismatch` | The signing secret does not belong to that access key ID, or the region/endpoint pair is wrong — re-enter the secret on the bucket. If it appears after upgrading rclone, check that `secret_access_key` in S3Dive's `rclone.conf` is plaintext: rclone's s3 backend does not reveal obscured values. |
 | Mount button disabled / "macFUSE is not installed" | Install the mount prerequisite for your OS and restart S3Dive. |
 | "That bucket is still used by a job or a mount" | Buckets referenced by jobs/mounts cannot be deleted. Renaming one updates the references automatically. |
 | `state.json is not readable` | S3Dive keeps the unreadable file as `state.json.corrupt-<timestamp>` and starts empty instead of overwriting it. |

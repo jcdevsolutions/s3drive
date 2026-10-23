@@ -213,7 +213,7 @@ export default function BucketsView() {
       {draft ? (
         <Modal
           title={draft.id ? `Edit bucket '${draft.name}'` : "Add an S3 bucket"}
-          subtitle="Credentials are obscured by rclone before they are written to disk."
+          subtitle="Secrets stay in S3Dive's own rclone.conf (mode 0600), never in your global config."
           onClose={() => setDraft(null)}
           footer={
             <>
@@ -293,7 +293,7 @@ export default function BucketsView() {
 
             <Field
               label="Secret access key"
-              hint={draft.id ? "Leave empty to keep the stored secret." : "Stored obscured in rclone.conf."}
+              hint={draft.id ? "Leave empty to keep the stored secret." : "Written to S3Dive's own rclone.conf."}
             >
               <input
                 className="input mono"

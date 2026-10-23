@@ -18,8 +18,10 @@ auto-mount at OS login.
   registers itself at OS login and starts flagged mounts on launch.
 - S6 (from L2, decision): v1 exposes mirror (`sync`), download (`copy`) and two-way
   (`bisync`) semantics.
-- S7 (from L2, decision): S3 credentials live in an app-owned `rclone.conf`; secrets are
-  obscured by rclone itself, never stored in app state, and the file is mode 0600.
+- S7 (from L2, decision; revised by L6): S3 credentials live in an app-owned `rclone.conf`;
+  the secret access key is written verbatim because rclone's s3 backend does not reveal
+  obscured values, it is never stored in app state, and the file is mode 0600. See
+  `odd/tasks/plaintext-s3-secret.md`.
 - S8 (from L2, decision): FUSE / WinFsp is detected at runtime; missing dependencies
   block mounting with an actionable message and guided install instructions.
 
@@ -143,8 +145,9 @@ L5 (decisions taken during the build, not stated in the request):
 
 - Jobs carry an explicit direction (push/pull) so a bucket can restore into a local folder;
   `bisync` ignores direction.
-- Secrets are passed to `rclone obscure` on stdin, so they never appear in process arguments,
-  and editing a bucket without re-entering the secret keeps the stored one.
+- Secrets never appear in process arguments, and editing a bucket without re-entering the
+  secret keeps the stored one. (Originally they were obscured on stdin before writing;
+  L6 reversed that for the s3 backend.)
 - Mounts are supervised children, never `--daemon`, so exit reasons reach the UI and quitting
   the app can kill them explicitly.
 - Mount points are refused when non-empty, when they overlap a job's local folder, when they
@@ -203,3 +206,9 @@ L13 (post-delivery fix: corrupted Linux window):
   with `env -u WEBKIT_DISABLE_DMABUF_RENDERER` still rendered correctly, proving the binary
   applies the default itself. No automated test: the failure is a driver-level rasterization
   defect, not observable through the app's public interface.
+
+L6 (requirement change, 2026-10-23): the user reported `SignatureDoesNotMatch: Signature
+validation failed` with correct credentials. Root cause: rclone v1.75.2's s3 backend signs
+with the obscured `secret_access_key` verbatim and never reveals it. Decision (L2 in the new
+doc): store the secret in plaintext in the 0600 app-owned config. S7 and the L5 note were
+rewritten accordingly; work tracked in `odd/tasks/plaintext-s3-secret.md`.
