@@ -161,9 +161,10 @@ pub fn remove_section(conf: &str, name: &str) -> String {
 
 /// The config section body for an S3 remote.
 ///
-/// The secret is already obscured by `rclone obscure`, so this function never sees
-/// the plaintext key and cannot leak it into a log.
-pub fn remote_pairs(remote: &Remote, obscured_secret: &str) -> Vec<(String, String)> {
+/// `secret` is the plaintext secret access key. rclone's s3 backend reads
+/// `secret_access_key` verbatim and never reveals an obscured value, so the value is
+/// written as given; callers keep it out of logs and process arguments.
+pub fn remote_pairs(remote: &Remote, secret: &str) -> Vec<(String, String)> {
     let mut pairs = vec![
         (SECTION_TYPE.to_string(), "s3".to_string()),
         (
@@ -176,7 +177,7 @@ pub fn remote_pairs(remote: &Remote, obscured_secret: &str) -> Vec<(String, Stri
         ),
         (
             SECTION_SECRET_ACCESS_KEY.to_string(),
-            obscured_secret.trim().to_string(),
+            secret.trim().to_string(),
         ),
         (SECTION_REGION.to_string(), remote.region.trim().to_string()),
     ];
@@ -200,7 +201,9 @@ mod tests {
     use super::*;
     use crate::model::S3Provider;
 
-    const OBSCURED: &str = "kEyObScUrEdVaLuE";
+    // A realistic Backblaze B2 application key: 31 characters, base64-ish, and it
+    // contains a slash, the shape that broke when it was obscured on the way to disk.
+    const SECRET: &str = "0055aa7b8c9d0e1f2a3b4c5d6S/7890";
 
     fn remote() -> Remote {
         let mut remote = Remote::new("media", "AKIAEXAMPLE");
@@ -210,13 +213,13 @@ mod tests {
 
     #[test]
     fn new_sections_are_appended_with_a_blank_separator() {
-        let conf = set_section("", "media", &remote_pairs(&remote(), OBSCURED));
+        let conf = set_section("", "media", &remote_pairs(&remote(), SECRET));
         assert!(conf.starts_with("[media]\n"), "{conf}");
         assert!(conf.contains("type = s3\n"), "{conf}");
         assert!(conf.contains("provider = AWS\n"), "{conf}");
         assert!(conf.contains("access_key_id = AKIAEXAMPLE\n"), "{conf}");
         assert!(
-            conf.contains("secret_access_key = kEyObScUrEdVaLuE\n"),
+            conf.contains(&format!("secret_access_key = {SECRET}\n")),
             "{conf}"
         );
         assert!(conf.contains("region = eu-west-1\n"), "{conf}");
@@ -225,7 +228,7 @@ mod tests {
 
     #[test]
     fn overwriting_a_section_keeps_other_sections_and_order() {
-        let first = set_section("", "media", &remote_pairs(&remote(), OBSCURED));
+        let first = set_section("", "media", &remote_pairs(&remote(), SECRET));
         let both = set_section(
             &first,
             "backup",
@@ -250,16 +253,19 @@ mod tests {
         );
     }
 
+    // rclone's s3 backend signs with whatever `secret_access_key` holds, so an obscured
+    // value fails every request with SignatureDoesNotMatch. The secret must reach the
+    // file byte for byte.
     #[test]
-    fn secrets_are_obscured_and_never_plaintext() {
-        let conf = set_section("", "media", &remote_pairs(&remote(), OBSCURED));
+    fn secret_is_written_verbatim() {
+        let conf = set_section("", "media", &remote_pairs(&remote(), SECRET));
         let pairs = get_section(&conf, "media").expect("section");
         let secret = pairs
             .iter()
             .find(|(key, _)| key == SECTION_SECRET_ACCESS_KEY)
             .map(|(_, value)| value.clone())
             .expect("secret key present");
-        assert_eq!(secret, OBSCURED);
+        assert_eq!(secret, SECRET);
     }
 
     #[test]
@@ -269,7 +275,7 @@ mod tests {
         custom.endpoint = Some("https://minio.local:9000".into());
         custom.force_path_style = true;
 
-        let pairs = remote_pairs(&custom, OBSCURED);
+        let pairs = remote_pairs(&custom, SECRET);
         let keys: Vec<&str> = pairs.iter().map(|(key, _)| key.as_str()).collect();
         assert!(keys.contains(&SECTION_ENDPOINT));
         assert!(keys.contains(&SECTION_FORCE_PATH_STYLE));
@@ -283,7 +289,7 @@ mod tests {
 
         let mut plain = remote();
         plain.endpoint = Some("   ".into());
-        let keys: Vec<String> = remote_pairs(&plain, OBSCURED)
+        let keys: Vec<String> = remote_pairs(&plain, SECRET)
             .into_iter()
             .map(|(key, _)| key)
             .collect();
@@ -292,7 +298,7 @@ mod tests {
 
     #[test]
     fn removing_a_section_leaves_the_rest_intact() {
-        let first = set_section("", "media", &remote_pairs(&remote(), OBSCURED));
+        let first = set_section("", "media", &remote_pairs(&remote(), SECRET));
         let both = set_section(
             &first,
             "backup",
@@ -320,7 +326,7 @@ mod tests {
     #[test]
     fn comments_and_unknown_keys_are_preserved_inside_other_sections() {
         let original = "# my notes\n[other]\ntype = local\n# keep me\n";
-        let conf = set_section(original, "media", &remote_pairs(&remote(), OBSCURED));
+        let conf = set_section(original, "media", &remote_pairs(&remote(), SECRET));
         assert!(conf.contains("# my notes"), "{conf}");
         assert!(conf.contains("# keep me"), "{conf}");
         assert_eq!(section_names(&conf), vec!["other", "media"]);

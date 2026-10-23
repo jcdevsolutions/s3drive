@@ -209,18 +209,6 @@ impl Rclone {
             },
         }
     }
-
-    /// Ask rclone to obscure a secret so it is never stored in plaintext.
-    pub async fn obscure(&self, secret: &str) -> Result<String, String> {
-        let output = self
-            .captured(&rclone::obscure_args(), Some(secret.to_string()))
-            .await?;
-        let obscure = output.trim().to_string();
-        if obscure.is_empty() {
-            return Err("rclone returned an empty obscured secret.".to_string());
-        }
-        Ok(obscure)
-    }
 }
 
 /// Probe the platform's mount prerequisite (FUSE / macFUSE / WinFsp).

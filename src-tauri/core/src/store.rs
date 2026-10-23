@@ -1,6 +1,6 @@
 //! On-disk persistence: one JSON state file and one app-owned `rclone.conf`.
 //!
-//! Both contain credentials-adjacent material (access key IDs, obscured secrets), so
+//! Both contain credentials-adjacent material (access key IDs, secret access keys), so
 //! both are written atomically with mode 0600 on Unix.
 
 use crate::model::{AppState, STATE_VERSION};

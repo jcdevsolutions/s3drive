@@ -165,10 +165,11 @@ pub async fn save_remote(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    // rclone obscures the secret, so plaintext never reaches disk and never appears
-    // in a log line of this app.
-    let obscured = match secret {
-        Some(secret) => context.rclone().obscure(secret).await?,
+    // The secret is written verbatim. rclone's s3 backend reads `secret_access_key` as
+    // plaintext and never reveals an obscured value, so an obscured secret makes every
+    // request fail with SignatureDoesNotMatch. The file is private and mode 0600.
+    let secret = match secret {
+        Some(secret) => secret.to_string(),
         None => rclone_conf::get_section(&current_conf, &previous_name)
             .and_then(|pairs| {
                 pairs
@@ -178,7 +179,7 @@ pub async fn save_remote(
             })
             .ok_or_else(|| {
                 format!(
-                    "Enter the secret access key for '{}'. It is stored obscured in rclone.conf.",
+                    "Enter the secret access key for '{}'. It is written to S3Dive's rclone.conf.",
                     record.name
                 )
             })?,
@@ -193,7 +194,7 @@ pub async fn save_remote(
     updated_conf = rclone_conf::set_section(
         &updated_conf,
         &record.name,
-        &rclone_conf::remote_pairs(&record, &obscured),
+        &rclone_conf::remote_pairs(&record, &secret),
     );
     store::write_private_file(&conf_path, &updated_conf).map_err(|error| error.to_string())?;
 

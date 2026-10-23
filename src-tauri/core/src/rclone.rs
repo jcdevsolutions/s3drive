@@ -23,12 +23,6 @@ pub fn version_args() -> Vec<String> {
     vec!["version".to_string()]
 }
 
-/// `rclone obscure -` reads the secret from stdin, so it never appears in the
-/// process arguments where other local users could read it.
-pub fn obscure_args() -> Vec<String> {
-    vec!["obscure".to_string(), "-".to_string()]
-}
-
 fn base_args(config_path: &str, settings: &Settings) -> Vec<String> {
     let mut args = vec![CONFIG_FLAG.to_string(), config_path.to_string()];
     if let Some(limit) = settings
@@ -534,8 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn obscure_reads_the_secret_from_stdin() {
-        assert_eq!(obscure_args(), vec!["obscure", "-"]);
+    fn version_probe_uses_the_version_subcommand() {
         assert_eq!(version_args(), vec!["version"]);
     }
 }
