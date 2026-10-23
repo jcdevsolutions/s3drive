@@ -5,6 +5,7 @@ import { api, describeError } from "./api";
 import type {
   AppState,
   FuseStatus,
+  Platform,
   JobFinished,
   JobLine,
   MountChanged,
@@ -30,7 +31,7 @@ interface AppContextValue {
   rclone: RcloneInfo;
   fuse: FuseStatus;
   autostart: boolean;
-  platform: string;
+  platform: Platform;
   configDir: string;
   rcloneConf: string;
   stateFile: string;
@@ -75,7 +76,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
   const [rclone, setRclone] = useState<RcloneInfo | null>(null);
   const [fuse, setFuse] = useState<FuseStatus | null>(null);
   const [autostart, setAutostart] = useState(false);
-  const [platform, setPlatform] = useState("");
+  const [platform, setPlatform] = useState<Platform | null>(null);
   const [paths, setPaths] = useState({ configDir: "", rcloneConf: "", stateFile: "" });
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   const [runs, setRuns] = useState<Record<string, RunHandle>>({});
@@ -135,6 +136,19 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
             return next;
           });
           const { summary } = payload;
+          // The backend writes the summary to the state file before it announces
+          // the end of the run, so the store can update the job in place. Asking
+          // for the whole state again would re-read the file and run rclone.
+          setState((current) =>
+            current
+              ? {
+                  ...current,
+                  jobs: current.jobs.map((job) =>
+                    job.id === payload.jobId ? { ...job, lastRun: summary } : job,
+                  ),
+                }
+              : current,
+          );
           const text =
             summary.outcome === "success"
               ? "Run finished successfully."
@@ -142,9 +156,6 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
           setNotice({
             kind: summary.outcome === "success" ? "success" : "error",
             text,
-          });
-          void api.bootstrap().then((refreshed) => {
-            if (alive) setState(refreshed.state);
           });
         });
 
@@ -188,7 +199,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
   const replaceFuse = useCallback((status: FuseStatus) => setFuse(status), []);
 
   const value = useMemo<AppContextValue | null>(() => {
-    if (!state || !rclone || !fuse) return null;
+    if (!state || !rclone || !fuse || !platform) return null;
     return {
       state,
       rclone,

@@ -13,15 +13,26 @@ pub struct RcloneInfo {
     pub available: bool,
     pub program: Option<String>,
     pub version: Option<String>,
-    /// "configured", "path" or "missing".
-    pub source: String,
+    pub source: RcloneSource,
     pub message: Option<String>,
+}
+
+/// Where the rclone binary came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RcloneSource {
+    /// The path in the settings.
+    Configured,
+    /// Found on PATH.
+    Path,
+    /// Not found.
+    Missing,
 }
 
 #[derive(Debug, Clone)]
 pub struct Rclone {
     pub program: Option<PathBuf>,
-    pub source: String,
+    pub source: RcloneSource,
 }
 
 fn executable_names() -> &'static [&'static str] {
@@ -74,30 +85,30 @@ impl Rclone {
             if path.is_file() {
                 return Self {
                     program: Some(path),
-                    source: "configured".to_string(),
+                    source: RcloneSource::Configured,
                 };
             }
             // Fall back to PATH but remember that the setting is broken.
             if let Some(found) = find_rclone_on_path() {
                 return Self {
                     program: Some(found),
-                    source: "path".to_string(),
+                    source: RcloneSource::Path,
                 };
             }
             return Self {
                 program: None,
-                source: "missing".to_string(),
+                source: RcloneSource::Missing,
             };
         }
 
         match find_rclone_on_path() {
             Some(path) => Self {
                 program: Some(path),
-                source: "path".to_string(),
+                source: RcloneSource::Path,
             },
             None => Self {
                 program: None,
-                source: "missing".to_string(),
+                source: RcloneSource::Missing,
             },
         }
     }
@@ -166,7 +177,7 @@ impl Rclone {
                 available: false,
                 program: None,
                 version: None,
-                source: self.source.clone(),
+                source: self.source,
                 message: Some(
                     "rclone was not found. Install it from https://rclone.org/downloads/ and reopen S3Dive, or set its path in Settings."
                         .to_string(),
@@ -179,14 +190,14 @@ impl Rclone {
                 available: true,
                 program: Some(program.to_string_lossy().to_string()),
                 version: rclone::parse_version(&stdout),
-                source: self.source.clone(),
+                source: self.source,
                 message: None,
             },
             Err(message) => RcloneInfo {
                 available: false,
                 program: Some(program.to_string_lossy().to_string()),
                 version: None,
-                source: self.source.clone(),
+                source: self.source,
                 message: Some(message),
             },
         }

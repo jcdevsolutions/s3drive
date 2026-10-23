@@ -6,6 +6,11 @@ authors = ["S3Dive contributors"]
 edition = "2021"
 rust-version = "1.77"
 
+# The core crate is a member, so one lockfile covers both crates and the
+# standalone test run of the core uses the same resolved versions.
+[workspace]
+members = ["core"]
+
 [lib]
 name = "s3dive_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

@@ -77,11 +77,6 @@ impl Remote {
             created_at_ms: now_ms(),
         }
     }
-
-    /// `remote:bucket/prefix` for this remote.
-    pub fn spec(&self, path: &str) -> String {
-        crate::rclone::remote_spec(&self.name, path)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -348,10 +343,6 @@ impl AppState {
                 mount.id = new_id();
             }
         }
-    }
-
-    pub fn find_remote(&self, name: &str) -> Option<&Remote> {
-        self.remotes.iter().find(|remote| remote.name == name)
     }
 
     /// The remote a job or a mount points at.

@@ -74,11 +74,13 @@ export interface AppState {
   mounts: Mount[];
 }
 
+export type Platform = "macos" | "windows" | "linux" | "other";
+
 export interface RcloneInfo {
   available: boolean;
   program: string | null;
   version: string | null;
-  source: "configured" | "path" | "missing" | string;
+  source: "configured" | "path" | "missing";
   message: string | null;
 }
 
@@ -103,7 +105,7 @@ export interface Bootstrap {
   rclone: RcloneInfo;
   fuse: FuseStatus;
   autostart: boolean;
-  platform: string;
+  platform: Platform;
   configDir: string;
   rcloneConf: string;
   stateFile: string;

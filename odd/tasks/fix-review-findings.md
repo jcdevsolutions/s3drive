@@ -63,8 +63,8 @@ src-tauri/core/Cargo.toml` (headless), `cargo test --manifest-path src-tauri/Car
 | T5 | S4 | inline | 397937d | done: `cancel`/`stop` take the sender, the entry stays in the registry until the child is dead + 4 shell tests |
 | T6 | S5 | inline | 397937d | done: `commit_remote_change` writes the config and the state together and restores the config when the state write fails + 1 shell test |
 | T7 | S6 | inline | 397937d | done: every write gets its own temporary file + 2 core tests |
-| T8 | S7 | inline | pending | pending: reject control characters in the secret |
-| T9 | S8 | inline | pending | pending: labels associated + modal focus trap |
+| T8 | S7 | inline | 8b37719 | done: `validate::secret_access_key` refuses control characters in the secret + 2 tests |
+| T9 | S8 | inline | 8b37719 | done: `useDialogFocus` traps and restores the focus, every field has an associated label, the Direction group is a fieldset with real radios |
 | T10 | S9 | inline | pending | pending: P3 cleanups |
 | T11 | S10 | inline | c793707 | done: `remoteId` on jobs and mounts, schema v2 + load-time migration in the core + 3 migration tests |
 | T12 | S10 | inline | c793707 | done: commands, arg builders and the shell resolve the remote by id |
@@ -232,6 +232,10 @@ L14 (work unit 5 — validation and accessibility, in flight):
 - The label wiring (every `Field` gets an `htmlFor` and its control an `id`) was delegated
   to a bounded writer with the exact id scheme, while the parent did the focus trap and the
   validation.
+- The writer flagged the one `Field` it could not wire: "Direction" wraps two buttons, not
+  a form control, so a `htmlFor` would point at nothing. The parent replaced it with a
+  `fieldset` and two real radio inputs, which gives the group a name and the arrow keys for
+  free. All 20 `Field` usages are now associated (verified: 20 `htmlFor`, no orphan).
 
 L15 (work unit 6 — P3 cleanups, planned):
 

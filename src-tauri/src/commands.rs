@@ -4,8 +4,8 @@
 use crate::context::{AppContext, LockExt, MountRuntime};
 use crate::runner::RcloneInfo;
 use crate::{jobs, mounts};
-use s3dive_core::model::{now_ms, AppState, Job, Mount, Remote, RunSummary, Settings};
-use s3dive_core::platform::FuseStatus;
+use s3dive_core::model::{now_ms, AppState, Direction, Job, Mount, Remote, RunSummary, Settings};
+use s3dive_core::platform::{FuseStatus, Os};
 use s3dive_core::{rclone, rclone_conf, remotes, store, validate};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
@@ -18,7 +18,7 @@ pub struct Bootstrap {
     pub rclone: RcloneInfo,
     pub fuse: FuseStatus,
     pub autostart: bool,
-    pub platform: String,
+    pub platform: Platform,
     pub config_dir: String,
     pub rclone_conf: String,
     pub state_file: String,
@@ -27,6 +27,27 @@ pub struct Bootstrap {
     pub warning: Option<String>,
     /// Jobs and mounts whose bucket is gone. They are reported, never re-pointed.
     pub dangling: Vec<String>,
+}
+
+/// The platform the app runs on, as a value the UI can switch on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Platform {
+    Macos,
+    Windows,
+    Linux,
+    Other,
+}
+
+impl From<&Os> for Platform {
+    fn from(os: &Os) -> Self {
+        match os {
+            Os::Macos => Platform::Macos,
+            Os::Windows => Platform::Windows,
+            Os::Linux => Platform::Linux,
+            Os::Other(_) => Platform::Other,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,7 +90,7 @@ pub async fn bootstrap(app: AppHandle) -> Result<Bootstrap, String> {
         rclone,
         fuse,
         autostart,
-        platform: format!("{:?}", context.os),
+        platform: Platform::from(&context.os),
         config_dir: context.paths.config_dir.to_string_lossy().to_string(),
         rclone_conf: context.paths.rclone_conf().to_string_lossy().to_string(),
         state_file: context.paths.state_file().to_string_lossy().to_string(),
@@ -359,6 +380,10 @@ pub fn save_job(app: AppHandle, mut job: Job) -> Result<AppState, String> {
     job.name = job.name.trim().to_string();
     job.remote_path = job.remote_path.trim().to_string();
     job.local_path = job.local_path.trim().to_string();
+    // A two-way job has no direction: the field is not part of its meaning.
+    if !job.kind.requires_direction() {
+        job.direction = Direction::default();
+    }
     job.include = job
         .include
         .into_iter()

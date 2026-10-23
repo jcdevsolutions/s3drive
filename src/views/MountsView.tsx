@@ -67,7 +67,7 @@ export default function MountsView() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pendingDelete, setPendingDelete] = useState<Mount | null>(null);
 
-  const isWindows = platform === "Windows";
+  const isWindows = platform === "windows";
   const update = (patch: Partial<Draft>) =>
     setDraft((current) => (current ? { ...current, ...patch } : current));
 
