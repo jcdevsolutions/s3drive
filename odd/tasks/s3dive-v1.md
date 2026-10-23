@@ -122,6 +122,23 @@ L9 (RDD): `gentle-ai review mode status` is on (global). Native assess returned
 untracked, so no candidate can be bound. Plan returned: writer self-verification, no extra
 verifier. An independent read-only verifier was run anyway; its findings are L8.
 
+L10 (delivery strategy and review outcome):
+
+- Version control: the repo existed but had zero commits. Work units were committed on
+  `feat/s3dive-v1` from `master` (`chore: ignore build outputs and dependencies`):
+  `ad8ed42` core crate, `ac7fe8f` shell, `3de0159` UI, `9fb25a5` docs, `593c5b6` Cargo.lock.
+  Push, PR and merge stay with the user.
+- Slice boundary: 8248 authored changes across 5 commits (lock files excluded), far above the
+  ~400-line review slice because this is a greenfield app. The honest boundary is by
+  component, and the review-relevant order is core (risky logic, tested) -> shell (process
+  and credential handling) -> UI -> docs.
+- Native assess on `master..HEAD` (committed range): `nativeRisk: high`, `reviewDue: true`
+  (`high_risk`), candidate `base-diff` consumed=false.
+- Native START was refused: `lens_context_budget_exceeded` in preflight, no authority was
+  created (`mutation_outcome: not_started`), so nothing has to be abandoned or repaired. The
+  native continuation is to split into smaller reviewable candidates. Each per-commit slice
+  is the natural candidate; which slice to review first is the user's decision.
+
 L5 (decisions taken during the build, not stated in the request):
 
 - Jobs carry an explicit direction (push/pull) so a bucket can restore into a local folder;
