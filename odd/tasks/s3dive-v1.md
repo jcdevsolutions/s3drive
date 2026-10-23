@@ -169,3 +169,22 @@ routing (deepseek-v4-pro for review-risk, deepseek-flash for the others):
 (`kind: gentle-pi.agent_model_profiles`, `active: default`). The running session still
 refuses, so the relay reads that config at session start: a fresh Pi session is required
 before the lineage can be resumed.
+
+L12 (native review of core+shell: APPROVED):
+- Lineage `review-df5280ed33aaa2aa` over `master..ac7fe8f` (73 paths, 4430 lines, tier high),
+  lenses risk (deepseek-v4-pro), resilience and reliability (deepseek-flash), plus the
+  provider refuter. 3 reviewers prepared/submitted, revision `a77710ad`.
+- Outcome: `approved`, then the exact acknowledgement continuation burned the authority
+  (`burn_evidence: gentle-ai.review-acknowledged/v1`). Delivery is ordinary repository policy.
+- Advisory (non-blocking, no correction offered, deliberate follow-ups rather than a reason to
+  re-review this candidate): R1-001 CRITICAL refuted (`src-tauri/src/commands.rs:96-105`);
+  informational R1-002 (same), R1-003 (`context.rs:96-112`), R1-004 (`core/src/validate.rs:174-180`),
+  R1-005 (`src/jobs.rs:293-307`), R3-001 (`core/src/validate.rs:152-164`),
+  R3-002 (`runner.rs:169-227`), R3-003 (`commands.rs:271-321`), R3-004 (`mounts.rs:128-157`),
+  R3-005 SUGGESTION (`core/src/rclone.rs:354-360`), R4-lock-poison (`context.rs:105`),
+  R4-mount-admission-after-spawn (`mounts.rs:131-168`).
+- Unblocking detail for future sessions: the host relay resolves reviewer models from
+  `~/.pi/gentle-ai/models.json`, a FLAT agent->{model,thinking} map read per call (not
+  `subagents.json` `model_profiles`, not `profiles.json` `active`). Role slots use the fixed
+  keys `review-refuter` and `review-validator`, so those need entries too. Selection format is
+  `provider/id`, e.g. `deepseek/deepseek-v4-pro`.
