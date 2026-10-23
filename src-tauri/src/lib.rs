@@ -7,6 +7,9 @@ mod runner;
 
 use context::AppContext;
 use paths::Paths;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -25,6 +28,55 @@ fn apply_linux_webkit_defaults() {
 
 #[cfg(not(target_os = "linux"))]
 fn apply_linux_webkit_defaults() {}
+
+static TRAY_READY: AtomicBool = AtomicBool::new(false);
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Show S3Dive", true, None::<&str>)?;
+    let quit = MenuItem::with_id(
+        app,
+        "quit",
+        "Quit S3Dive (unmounts all)",
+        true,
+        None::<&str>,
+    )?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+
+    let mut tray = TrayIconBuilder::with_id("main")
+        .tooltip("S3Dive")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => show_main_window(app),
+            // exit() fires RunEvent::Exit, which kills jobs and mounts.
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        // Linux tray icons do not report clicks; there the menu is the only way in.
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
 
 pub fn run() {
     apply_linux_webkit_defaults();
@@ -61,7 +113,24 @@ pub fn run() {
                 mounts::start_auto_mounts(handle).await;
             });
 
+            // A tray failure is not fatal: closing the window then quits, as before.
+            if let Err(error) = build_tray(app) {
+                eprintln!("S3Dive: tray icon unavailable, closing the window will quit: {error}");
+            } else {
+                TRAY_READY.store(true, Ordering::Relaxed);
+            }
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Closing the window hides it to the tray so mounts keep running; "Quit" in
+            // the tray menu is the real exit, and that still unmounts everything.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if TRAY_READY.load(Ordering::Relaxed) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,

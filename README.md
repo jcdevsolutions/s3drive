@@ -23,6 +23,8 @@ command lines, supervises the processes, and shows you what happened.
   child process. Choose the VFS cache mode, read-only, `--allow-other` (Unix only).
 - **Auto-mount at login** — register S3Dive as a login item; every mount flagged
   *auto-mount* is started when the app starts. Quitting the app unmounts them.
+- **Tray icon** — closing the window hides S3Dive to the system tray, so mounts keep
+  running. Use *Quit S3Dive* in the tray menu to exit; quitting unmounts everything.
 
 ## Requirements
 
