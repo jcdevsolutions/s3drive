@@ -7,6 +7,7 @@ use crate::model::{AppState, STATE_VERSION};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -132,12 +133,18 @@ pub fn quarantine_state(path: &Path) -> Result<Option<PathBuf>, StoreError> {
     Ok(Some(backup))
 }
 
+/// Counts the writes, so two concurrent writes never share a temporary file.
+static WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 fn temp_path(path: &Path) -> PathBuf {
     let file_name = path
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "s3dive".to_string());
-    path.with_file_name(format!(".{file_name}.{}.tmp", std::process::id()))
+    // The pid alone is not enough: two writes in the same process would use the
+    // same temporary file and one of them would rename the other's content.
+    let counter = WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    path.with_file_name(format!(".{file_name}.{}.{counter}.tmp", std::process::id()))
 }
 
 #[cfg(test)]
@@ -311,6 +318,41 @@ mod tests {
 
         let loaded = load_state(&path).expect("load");
         assert!(!loaded.remotes[0].id.is_empty(), "the empty id survived");
+    }
+
+    #[test]
+    fn temporary_names_never_repeat() {
+        let path = Path::new("/tmp/s3dive/rclone.conf");
+        let first = temp_path(path);
+        let second = temp_path(path);
+
+        assert_ne!(first, second, "two writes share one temporary file");
+        assert!(first.to_string_lossy().ends_with(".tmp"));
+    }
+
+    #[test]
+    fn concurrent_writes_to_the_same_file_both_land() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("rclone.conf");
+
+        let writer = |contents: &'static str| {
+            let path = path.clone();
+            std::thread::spawn(move || write_private_file(&path, contents))
+        };
+
+        let first = writer("first");
+        let second = writer("second");
+        let first = first.join().expect("first writer");
+        let second = second.join().expect("second writer");
+
+        assert!(first.is_ok(), "the first write failed: {first:?}");
+        assert!(second.is_ok(), "the second write failed: {second:?}");
+
+        let on_disk = fs::read_to_string(&path).expect("read");
+        assert!(
+            on_disk == "first" || on_disk == "second",
+            "the file holds a mix of both writes: {on_disk}"
+        );
     }
 
     #[test]

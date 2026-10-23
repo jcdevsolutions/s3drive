@@ -153,7 +153,7 @@ pub async fn run(app: AppHandle, job_id: String, resync: bool) -> Result<RunSumm
             RunEntry {
                 job_id: job_id.clone(),
                 pid: None,
-                cancel: cancel_tx,
+                cancel: Some(cancel_tx),
             },
         );
     }
@@ -287,16 +287,30 @@ pub async fn run(app: AppHandle, job_id: String, resync: bool) -> Result<RunSumm
     Ok(summary)
 }
 
+/// Ask a run to stop.
+///
+/// The entry stays in the registry until the supervising task sees the child exit,
+/// so the pid stays killable: quitting the app right after a cancel still kills the
+/// rclone child instead of leaving a mirror running with no UI.
 pub fn cancel(app: AppHandle, run_id: &str) -> Result<(), String> {
     let context = app.state::<AppContext>();
-    let entry = context.runs.lock_recover().remove(run_id);
+    cancel_run(&context, run_id)
+}
 
-    match entry {
-        Some(entry) => entry
-            .cancel
+fn cancel_run(context: &AppContext, run_id: &str) -> Result<(), String> {
+    let sender = {
+        let mut runs = context.runs.lock_recover();
+        let entry = runs
+            .get_mut(run_id)
+            .ok_or_else(|| "That run had already finished.".to_string())?;
+        entry.cancel.take()
+    };
+
+    match sender {
+        Some(sender) => sender
             .send(())
             .map_err(|_| "That run had already finished.".to_string()),
-        None => Err("That run had already finished.".to_string()),
+        None => Err("That run is already stopping.".to_string()),
     }
 }
 
@@ -309,4 +323,48 @@ pub fn kill_all(app: &AppHandle) {
     }
     context.runs.lock_recover().clear();
     context.active_jobs.lock_recover().clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::RunEntry;
+    use crate::paths::Paths;
+
+    #[test]
+    fn a_cancelled_run_stays_killable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = AppContext::load(Paths::new(dir.path().to_path_buf()));
+
+        let (sender, _receiver) = tokio::sync::oneshot::channel();
+        context.runs.lock_recover().insert(
+            "run-1".to_string(),
+            RunEntry {
+                job_id: "job-1".to_string(),
+                pid: Some(4242),
+                cancel: Some(sender),
+            },
+        );
+
+        cancel_run(&context, "run-1").expect("cancel the run");
+
+        assert_eq!(
+            context.running_job_pids(),
+            vec![4242],
+            "the pid left the registry before the child died"
+        );
+        assert!(
+            context.runs.lock_recover().contains_key("run-1"),
+            "the run left the registry before the child died"
+        );
+    }
+
+    #[test]
+    fn cancelling_an_unknown_run_says_it_finished() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = AppContext::load(Paths::new(dir.path().to_path_buf()));
+
+        let error = cancel_run(&context, "missing").expect_err("there is no such run");
+        assert!(error.contains("already finished"), "{error}");
+    }
 }

@@ -58,8 +58,8 @@ src-tauri/core/Cargo.toml` (headless), `cargo test --manifest-path src-tauri/Car
 | --- | --- | --- | --- | --- |
 | T1 | S2 | inline | 5c7665e, eeef3a0 | done: core identity API (`plan_remote_update` / `apply_remote_update`) + `ensure_ids` repair on load + 7 core tests |
 | T2 | S2 | inline | eeef3a0 | done: `save_remote` / `delete_remote` wiring + 3 shell tests |
-| T3 | S3 | inline | pending | pending: core flag tokenizer + `base_args` + core tests |
-| T4 | S3 | inline | pending | pending: Settings validation, UI hint, README wording |
+| T3 | S3 | inline | 3d68e5f | done: core flag tokenizer (`split_flag_line`) + `validate::extra_flags` + `base_args` + 10 core tests |
+| T4 | S3 | inline | 3d68e5f | done: `save_settings` calls the core validation, Settings hint and README wording fixed |
 | T5 | S4 | inline | pending | pending: keep the pid in the registry until the child is dead |
 | T6 | S5 | inline | pending | pending: `rclone.conf` and `state.json` stay consistent |
 | T7 | S6 | inline | pending | pending: unique temporary file per write |
@@ -143,3 +143,27 @@ L9 (design for work units 3 and 4, decided while work unit 2 was in flight):
   `transfer_args` and `mount_args` take the remote name as an argument, because the job no
   longer carries it. `apply_remote_update` loses the rename rewrite: with ids, a rename
   cannot move a job.
+
+L10 (work unit 2 — extra flags, RED → GREEN, delivered in `3d68e5f`):
+
+- Delegated the core half to a bounded writer (the tokenizer, the validation API and the
+  core tests); the parent did the shell wiring, the Settings hint and the README. The
+  writer's brief fixed the exact API signatures, so the two halves met without a
+  negotiation round.
+- RED: the argv carried one element, `["--config", ..., "--transfers 8", "copy", ...]`;
+  `bandwidth_limit_and_global_flags_apply_to_every_run` failed with the left/right
+  difference, and the new test failed with 64 passed, 2 failed.
+- GREEN: core 70 unit + 5 + 6 integration tests, shell 3 tests, all green; clippy
+  `-D warnings` clean on both crates; `cargo fmt --check` clean; `pnpm build` green.
+- End-to-end proof against real rclone 1.75.2: the argv is now
+  `["--config", CONF, "--transfers", "8", "sync", ...]` and rclone parses it, failing only
+  for the expected missing config section instead of `unknown command`.
+- The writer's differential check compared eight argv scenarios against the base commit:
+  the only differences are the two intended ones.
+- Parent hardening after the handoff: `base_args` now drops a config flag that reaches it
+  through a hand-edited state file, together with its value, so the app config path cannot
+  be redirected. The writer had flagged that only `save_settings` gated it.
+
+L11 (delivery): 911 authored lines across three commits (`main` -> `fix/review-findings` ->
+`fix/extra-flags`). The chain strategy applies: the next work unit starts on
+`fix/process-lifecycle`, stacked on `fix/extra-flags`.

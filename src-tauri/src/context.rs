@@ -14,12 +14,16 @@ pub struct RunEntry {
     pub job_id: String,
     /// Set once the child exists, so quitting the app can terminate it.
     pub pid: Option<u32>,
-    pub cancel: oneshot::Sender<()>,
+    /// Taken when the run is cancelled. The entry stays in the registry until the
+    /// child is really dead, so its pid can still be killed on app exit.
+    pub cancel: Option<oneshot::Sender<()>>,
 }
 
 /// A live mount child process plus what the UI needs to know about it.
 pub struct MountEntry {
-    pub cancel: oneshot::Sender<()>,
+    /// Taken when the mount is stopped. The entry stays in the registry until the
+    /// child is really dead, so its pid can still be killed on app exit.
+    pub cancel: Option<oneshot::Sender<()>>,
     pub runtime: MountRuntime,
 }
 

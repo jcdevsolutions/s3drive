@@ -167,7 +167,6 @@ fn save_remote_inner(
         .previous_name
         .as_deref()
         .unwrap_or(record.name.as_str());
-    let conf_path = context.paths.rclone_conf();
     let current_conf = read_conf(context)?;
     let secret = secret_access_key
         .as_deref()
@@ -194,7 +193,7 @@ fn save_remote_inner(
             })?,
     };
 
-    let mut updated_conf = current_conf;
+    let mut updated_conf = current_conf.clone();
     if let Some(old_name) = planned.previous_name.as_deref() {
         if old_name != record.name {
             updated_conf = rclone_conf::remove_section(&updated_conf, old_name);
@@ -205,15 +204,40 @@ fn save_remote_inner(
         &record.name,
         &rclone_conf::remote_pairs(record, &secret),
     );
-    store::write_private_file(&conf_path, &updated_conf).map_err(|error| error.to_string())?;
 
     // The state transition is applied last and re-checks the name, so the config
     // file and the state file cannot end up disagreeing about which buckets exist.
-    let (_, snapshot) = context.mutate(move |state| {
+    commit_remote_change(context, &current_conf, &updated_conf, move |state| {
         remotes::apply_remote_update(state, &planned)?;
         Ok(())
-    })?;
-    Ok(snapshot)
+    })
+}
+
+/// Write the config file and the state together.
+///
+/// The config is written first: a bucket without credentials is worse than a
+/// credential without a bucket. When the state write fails, the previous config
+/// content is written back, so the two files never disagree.
+fn commit_remote_change(
+    context: &AppContext,
+    previous_conf: &str,
+    updated_conf: &str,
+    change: impl FnOnce(&mut AppState) -> Result<(), String>,
+) -> Result<AppState, String> {
+    let conf_path = context.paths.rclone_conf();
+    store::write_private_file(&conf_path, updated_conf).map_err(|error| error.to_string())?;
+
+    match context.mutate(change) {
+        Ok((_, snapshot)) => Ok(snapshot),
+        Err(error) => {
+            if let Err(rollback) = store::write_private_file(&conf_path, previous_conf) {
+                return Err(format!(
+                    "{error}. The rclone config could not be restored: {rollback}"
+                ));
+            }
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -239,16 +263,13 @@ fn delete_remote_inner(context: &AppContext, id: String) -> Result<AppState, Str
         ));
     }
 
-    let conf_path = context.paths.rclone_conf();
     let current_conf = read_conf(context)?;
     let updated_conf = rclone_conf::remove_section(&current_conf, &remote.name);
-    store::write_private_file(&conf_path, &updated_conf).map_err(|error| error.to_string())?;
 
-    let (_, snapshot) = context.mutate(|state| {
+    commit_remote_change(context, &current_conf, &updated_conf, move |state| {
         state.remotes.retain(|candidate| candidate.id != remote.id);
         Ok(())
-    })?;
-    Ok(snapshot)
+    })
 }
 
 #[tauri::command]
@@ -605,5 +626,37 @@ mod tests {
 
         assert_eq!(state.remotes.len(), 1);
         assert_eq!(state.remotes[0].name, "media");
+    }
+
+    #[test]
+    fn a_failed_state_write_restores_the_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = context_in(dir.path());
+
+        let mut first = Remote::new("media", "AKIAONE");
+        first.id = String::new();
+        save_remote_inner(&context, first, Some("secret-one".into())).expect("save the first");
+
+        let conf_before =
+            std::fs::read_to_string(context.paths.rclone_conf()).expect("read the config");
+
+        // Make the state write fail: the state file path is a directory, so the
+        // atomic rename cannot land.
+        std::fs::remove_file(context.paths.state_file()).expect("remove the state file");
+        std::fs::create_dir_all(context.paths.state_file()).expect("block the state file");
+
+        let mut second = Remote::new("backup", "AKIATWO");
+        second.id = String::new();
+        let error = save_remote_inner(&context, second, Some("secret-two".into()))
+            .expect_err("the write fails");
+
+        assert!(
+            error.contains("Cannot access"),
+            "the error does not name the failed file: {error}"
+        );
+        let conf_after =
+            std::fs::read_to_string(context.paths.rclone_conf()).expect("read the config");
+        assert_eq!(conf_after, conf_before, "the config was not restored");
+        assert_eq!(context.state().remotes.len(), 1, "the state changed anyway");
     }
 }

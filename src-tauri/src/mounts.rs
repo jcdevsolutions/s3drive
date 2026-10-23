@@ -166,7 +166,7 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
         live.insert(
             mount.id.clone(),
             MountEntry {
-                cancel: cancel_tx,
+                cancel: Some(cancel_tx),
                 runtime: starting,
             },
         );
@@ -299,16 +299,30 @@ pub async fn start(app: AppHandle, mount_id: String) -> Result<MountRuntime, Str
     Ok(runtime)
 }
 
+/// Ask a mount to unmount.
+///
+/// The entry stays in the registry until the supervising task sees the child exit,
+/// so the pid stays killable: quitting the app right after an unmount still kills the
+/// rclone child instead of leaving a stale mount behind.
 pub fn stop(app: AppHandle, mount_id: &str) -> Result<(), String> {
     let context = app.state::<AppContext>();
-    let entry = context.mounts.lock_recover().remove(mount_id);
+    stop_mount(&context, mount_id)
+}
 
-    match entry {
-        Some(entry) => entry
-            .cancel
+fn stop_mount(context: &AppContext, mount_id: &str) -> Result<(), String> {
+    let sender = {
+        let mut live = context.mounts.lock_recover();
+        let entry = live
+            .get_mut(mount_id)
+            .ok_or_else(|| "That mount is not running.".to_string())?;
+        entry.cancel.take()
+    };
+
+    match sender {
+        Some(sender) => sender
             .send(())
             .map_err(|_| "That mount had already stopped.".to_string()),
-        None => Err("That mount is not running.".to_string()),
+        None => Err("That mount is already unmounting.".to_string()),
     }
 }
 
@@ -364,5 +378,55 @@ pub async fn start_auto_mounts(app: AppHandle) {
             };
             emit_change(&app, &runtime);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::paths::Paths;
+
+    #[test]
+    fn a_stopped_mount_stays_killable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = AppContext::load(Paths::new(dir.path().to_path_buf()));
+
+        let (sender, _receiver) = tokio::sync::oneshot::channel();
+        context.mounts.lock_recover().insert(
+            "mount-1".to_string(),
+            MountEntry {
+                cancel: Some(sender),
+                runtime: MountRuntime {
+                    mount_id: "mount-1".to_string(),
+                    running: true,
+                    pid: Some(4343),
+                    detail: "running".to_string(),
+                    started_at_ms: None,
+                },
+            },
+        );
+
+        stop_mount(&context, "mount-1").expect("stop the mount");
+
+        let pids: Vec<u32> = context
+            .mounts
+            .lock_recover()
+            .values()
+            .filter_map(|entry| entry.runtime.pid)
+            .collect();
+        assert_eq!(
+            pids,
+            vec![4343],
+            "the pid left the registry before the child died"
+        );
+    }
+
+    #[test]
+    fn stopping_an_unknown_mount_says_it_is_not_running() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = AppContext::load(Paths::new(dir.path().to_path_buf()));
+
+        let error = stop_mount(&context, "missing").expect_err("there is no such mount");
+        assert!(error.contains("not running"), "{error}");
     }
 }
