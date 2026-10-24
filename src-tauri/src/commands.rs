@@ -19,6 +19,8 @@ pub struct Bootstrap {
     pub fuse: FuseStatus,
     pub autostart: bool,
     pub platform: Platform,
+    /// The release version, read from the Tauri config, which reads it from `package.json`.
+    pub version: String,
     pub config_dir: String,
     pub rclone_conf: String,
     pub state_file: String,
@@ -91,6 +93,7 @@ pub async fn bootstrap(app: AppHandle) -> Result<Bootstrap, String> {
         fuse,
         autostart,
         platform: Platform::from(&context.os),
+        version: app.package_info().version.to_string(),
         config_dir: context.paths.config_dir.to_string_lossy().to_string(),
         rclone_conf: context.paths.rclone_conf().to_string_lossy().to_string(),
         state_file: context.paths.state_file().to_string_lossy().to_string(),
@@ -822,5 +825,33 @@ mod tests {
             std::fs::read_to_string(context.paths.rclone_conf()).expect("read the config");
         assert_eq!(conf_after, conf_before, "the config was not restored");
         assert_eq!(context.state().remotes.len(), 1, "the state changed anyway");
+    }
+
+    /// The release version has one home: `package.json`. `tauri.conf.json` points
+    /// at it and `Cargo.toml` repeats it, so this test fails when they drift.
+    #[test]
+    fn the_release_version_matches_the_package_json_version() {
+        let (config, _) = tauri::utils::config::parse::parse(
+            tauri::utils::platform::Target::current(),
+            "tauri.conf.json",
+        )
+        .expect("tauri.conf.json parses");
+        let package: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string("../package.json").expect("read package.json"))
+                .expect("package.json parses");
+        let expected = package["version"]
+            .as_str()
+            .expect("package.json has a version");
+
+        assert_eq!(
+            config.version.as_deref(),
+            Some(expected),
+            "tauri.conf.json does not resolve to the package.json version"
+        );
+        assert_eq!(
+            env!("CARGO_PKG_VERSION"),
+            expected,
+            "Cargo.toml does not match the package.json version"
+        );
     }
 }

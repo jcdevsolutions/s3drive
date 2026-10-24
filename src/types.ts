@@ -106,6 +106,8 @@ export interface Bootstrap {
   fuse: FuseStatus;
   autostart: boolean;
   platform: Platform;
+  /** The release version of the app. */
+  version: string;
   configDir: string;
   rcloneConf: string;
   stateFile: string;

@@ -37,7 +37,7 @@ function NoticeBar() {
 }
 
 function Shell() {
-  const { state, rclone, fuse, runtimes, runs, dangling } = useApp();
+  const { state, rclone, fuse, runtimes, runs, dangling, version } = useApp();
   const [view, setView] = useState<ViewKey>("buckets");
 
   const runningMounts = Object.values(runtimes).filter((runtime) => runtime.running).length;
@@ -84,6 +84,7 @@ function Shell() {
             <span className={`dot ${rclone.available ? "dot--ok" : "dot--warn"}`} />
             <span>{rclone.available ? `rclone ${rclone.version ?? ""}` : "rclone missing"}</span>
           </div>
+          <span className="rail__version">S3Dive {version}</span>
           <div className="rail__stat">
             <span className={`dot ${fuse.available ? "dot--ok" : "dot--idle"}`} />
             <span>{fuse.available ? "mounting ready" : "mounting unavailable"}</span>

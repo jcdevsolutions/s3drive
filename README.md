@@ -165,6 +165,21 @@ Why a separate `core` crate: the risky logic (which flags rclone gets, how the c
 is edited, how state is persisted, how paths are validated) is testable with `cargo test`
 and no GUI, no display server and no rclone binary.
 
+## Versioning
+
+The release version lives in `package.json`. `src-tauri/tauri.conf.json` points at it
+(`"version": "../package.json"`), so the Tauri bundler and the running app report the same
+number. `src-tauri/Cargo.toml` repeats it for the crate metadata, and a test fails when the
+three drift apart.
+
+```bash
+pnpm version 0.3.0 --no-git-tag-version   # bumps package.json
+```
+
+Then set the same number in `src-tauri/Cargo.toml` (`cargo test --manifest-path
+src-tauri/Cargo.toml` tells you when you forget). The version is shown in the sidebar, under
+the rclone version.
+
 ## Where your data lives
 
 | OS | Folder |

@@ -238,6 +238,12 @@ p {
   gap: 8px;
 }
 
+.rail__version {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+
 .main {
   position: relative;
   overflow-y: auto;

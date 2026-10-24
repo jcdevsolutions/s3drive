@@ -32,6 +32,8 @@ interface AppContextValue {
   fuse: FuseStatus;
   autostart: boolean;
   platform: Platform;
+  /** The release version of the app. */
+  version: string;
   configDir: string;
   rcloneConf: string;
   stateFile: string;
@@ -77,6 +79,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
   const [fuse, setFuse] = useState<FuseStatus | null>(null);
   const [autostart, setAutostart] = useState(false);
   const [platform, setPlatform] = useState<Platform | null>(null);
+  const [version, setVersion] = useState("");
   const [paths, setPaths] = useState({ configDir: "", rcloneConf: "", stateFile: "" });
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   const [runs, setRuns] = useState<Record<string, RunHandle>>({});
@@ -110,6 +113,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
         setFuse(boot.fuse);
         setAutostart(boot.autostart);
         setPlatform(boot.platform);
+        setVersion(boot.version);
         setPaths({
           configDir: boot.configDir,
           rcloneConf: boot.rcloneConf,
@@ -206,6 +210,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
       fuse,
       autostart,
       platform,
+      version,
       configDir: paths.configDir,
       rcloneConf: paths.rcloneConf,
       stateFile: paths.stateFile,
@@ -228,6 +233,7 @@ export function S3DiveProvider({ children }: { children: ReactNode }) {
     fuse,
     autostart,
     platform,
+    version,
     paths,
     logs,
     runs,

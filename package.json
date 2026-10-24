@@ -1,7 +1,7 @@
 {
   "name": "s3dive",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Visual interface for rclone: S3 remotes, sync jobs and mounts with auto-mount on login.",
   "scripts": {
