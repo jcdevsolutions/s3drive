@@ -266,3 +266,60 @@ fn terminate(pid: u32, _force: bool) {
 fn is_running(_pid: u32) -> bool {
     false
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Wait until the child is gone, or give up.
+    fn wait_for_exit(child: &mut std::process::Child, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => return true,
+                Ok(None) => {}
+                Err(_) => return false,
+            }
+            if Instant::now() > deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn a_normal_child_dies_when_the_app_kills_it() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn a child");
+        let pid = child.id();
+
+        kill_process(pid);
+
+        assert!(
+            wait_for_exit(&mut child, Duration::from_secs(5)),
+            "the child survived the kill"
+        );
+    }
+
+    #[test]
+    fn a_child_that_ignores_sigterm_is_killed_by_the_escalation() {
+        // `exec` keeps the ignored signal disposition, so the pid is the sleep
+        // itself and nothing is left behind when it dies.
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("trap '' TERM; exec sleep 30")
+            .spawn()
+            .expect("spawn a child");
+        let pid = child.id();
+
+        kill_process(pid);
+
+        assert!(
+            wait_for_exit(&mut child, Duration::from_secs(10)),
+            "the child survived the SIGKILL escalation"
+        );
+    }
+}

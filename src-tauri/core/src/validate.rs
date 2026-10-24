@@ -146,6 +146,9 @@ fn comparable(path: &Path) -> PathBuf {
 ///
 /// S3Dive owns the rclone config file, so `--config` is refused: the user would
 /// silently point rclone at a different config than the one the app manages.
+/// The flag is refused wherever it appears in the line, not only as the first
+/// token: a flag that hides in the middle of a line would be dropped later
+/// without a word.
 pub fn extra_flags(flags: &[String]) -> Result<(), String> {
     for line in flags {
         let trimmed = line.trim();
@@ -159,10 +162,12 @@ pub fn extra_flags(flags: &[String]) -> Result<(), String> {
                 "'{trimmed}' is not an rclone flag. Extra flags must start with '-' (for example --transfers 8)."
             ));
         }
-        if first == CONFIG_FLAG || first.starts_with("--config=") {
-            return Err(format!(
-                "'{first}' cannot be an extra flag: S3Dive chooses the rclone config file."
-            ));
+        for token in &tokens {
+            if token == CONFIG_FLAG || token.starts_with("--config=") {
+                return Err(format!(
+                    "'{token}' cannot be an extra flag: S3Dive chooses the rclone config file."
+                ));
+            }
         }
     }
     Ok(())

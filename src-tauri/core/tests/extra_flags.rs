@@ -54,3 +54,26 @@ fn the_config_flag_is_refused() {
     assert!(extra_flags(&["--config /etc/rclone.conf".into()]).is_err());
     assert!(extra_flags(&["--config=/etc/rclone.conf".into()]).is_err());
 }
+
+#[test]
+fn a_config_flag_after_another_flag_is_refused() {
+    let error = extra_flags(&["--transfers 8 --config /etc/rclone.conf".into()])
+        .expect_err("the config flag must be refused in any position");
+    assert!(error.contains("--config"), "{error}");
+    assert!(error.contains("config file"), "{error}");
+}
+
+#[test]
+fn the_config_flag_is_refused_in_every_position() {
+    for line in [
+        "--config /etc/rclone.conf",
+        "--config=/etc/rclone.conf",
+        "--transfers 8 --config /etc/rclone.conf",
+        "--config=/etc/rclone.conf --transfers 8",
+        "--transfers 8 --config=/etc/rclone.conf",
+    ] {
+        let error = extra_flags(&[line.to_string()])
+            .expect_err("the config flag must be refused in every position");
+        assert!(error.contains("--config"), "{line}: {error}");
+    }
+}

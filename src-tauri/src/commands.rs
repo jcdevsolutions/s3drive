@@ -696,6 +696,103 @@ mod tests {
     }
 
     #[test]
+    fn a_rejected_save_leaves_both_files_byte_identical() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = context_in(dir.path());
+
+        let mut first = Remote::new("media", "AKIAONE");
+        first.id = String::new();
+        save_remote_inner(&context, first, Some("secret-one".into())).expect("save the first");
+
+        let conf_before =
+            std::fs::read_to_string(context.paths.rclone_conf()).expect("read the config");
+        let state_before =
+            std::fs::read_to_string(context.paths.state_file()).expect("read the state");
+
+        // The same name again: the save is refused.
+        let mut clash = Remote::new("Media", "AKIATWO");
+        clash.id = String::new();
+        let error = save_remote_inner(&context, clash, Some("secret-two".into()))
+            .expect_err("the duplicate name must be refused");
+        assert!(error.contains("already exists"), "{error}");
+
+        let conf_after =
+            std::fs::read_to_string(context.paths.rclone_conf()).expect("read the config");
+        let state_after =
+            std::fs::read_to_string(context.paths.state_file()).expect("read the state");
+        assert_eq!(conf_after, conf_before, "the config changed");
+        assert_eq!(state_after, state_before, "the state changed");
+    }
+
+    #[test]
+    fn a_failing_config_write_leaves_the_state_alone() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = context_in(dir.path());
+
+        // The config path is a directory, so the atomic rename cannot land.
+        std::fs::create_dir_all(context.paths.rclone_conf()).expect("block the config");
+
+        let mut remote = Remote::new("media", "AKIAONE");
+        remote.id = String::new();
+        save_remote_inner(&context, remote, Some("secret-one".into()))
+            .expect_err("the config write must fail");
+
+        assert_eq!(context.state().remotes.len(), 0, "the bucket was saved");
+        assert!(
+            !context.paths.state_file().exists(),
+            "the state file was written"
+        );
+    }
+
+    #[test]
+    fn a_rename_moves_the_config_section_and_keeps_the_job() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let context = context_in(dir.path());
+
+        let mut first = Remote::new("media", "AKIAONE");
+        first.id = String::new();
+        save_remote_inner(&context, first, Some("secret-one".into())).expect("save the first");
+
+        let media_id = context
+            .state()
+            .remotes
+            .iter()
+            .find(|remote| remote.name == "media")
+            .expect("the media bucket")
+            .id
+            .clone();
+        context
+            .mutate(|state| {
+                state.jobs.push(Job::new(
+                    "Photos",
+                    JobKind::Sync,
+                    media_id.clone(),
+                    "photos",
+                    "/home/me/Pictures",
+                ));
+                Ok(())
+            })
+            .expect("add the job");
+
+        // Rename the bucket without re-entering the secret.
+        let mut renamed = Remote::new("pictures", "AKIAONE");
+        renamed.id = media_id.clone();
+        let state = save_remote_inner(&context, renamed, None).expect("rename the bucket");
+
+        let conf = std::fs::read_to_string(context.paths.rclone_conf()).expect("read the config");
+        assert!(conf.contains("[pictures]"), "{conf}");
+        assert!(
+            !conf.contains("[media]"),
+            "the old section survived: {conf}"
+        );
+        assert!(conf.contains("secret_access_key = secret-one"), "{conf}");
+        assert_eq!(
+            state.jobs[0].remote_id, media_id,
+            "the job moved to another bucket"
+        );
+    }
+
+    #[test]
     fn a_failed_state_write_restores_the_config() {
         let dir = tempfile::tempdir().expect("tempdir");
         let context = context_in(dir.path());

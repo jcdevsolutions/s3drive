@@ -65,7 +65,7 @@ src-tauri/core/Cargo.toml` (headless), `cargo test --manifest-path src-tauri/Car
 | T7 | S6 | inline | 397937d | done: every write gets its own temporary file + 2 core tests |
 | T8 | S7 | inline | 8b37719 | done: `validate::secret_access_key` refuses control characters in the secret + 2 tests |
 | T9 | S8 | inline | 8b37719 | done: `useDialogFocus` traps and restores the focus, every field has an associated label, the Direction group is a fieldset with real radios |
-| T10 | S9 | inline | pending | pending: P3 cleanups |
+| T10 | S9 | inline | dbecbbc | done: the store updates a finished job in place, `platform` and `source` are typed enums, one lockfile, dead API removed |
 | T11 | S10 | inline | c793707 | done: `remoteId` on jobs and mounts, schema v2 + load-time migration in the core + 3 migration tests |
 | T12 | S10 | inline | c793707 | done: commands, arg builders and the shell resolve the remote by id |
 | T13 | S10 | inline | c793707 | done: the UI picks the bucket by id, shows the resolved name and reports dangling references |
@@ -248,3 +248,36 @@ L15 (work unit 6 — P3 cleanups, planned):
 - `Remote::spec` and `AppState::find_remote` are removed (both dead after the id change) and
   `JobKind::requires_direction` gets a caller: a bisync job always stores the default
   direction.
+
+L16 (work unit 6 — P3 cleanups, delivered in `dbecbbc`):
+
+- `job:finished` updates the job in the store from the payload it carries. The backend
+  writes the summary to the state file before it announces the end of the run, so the
+  store no longer re-runs `bootstrap` (which re-read the file and spawned `rclone version`).
+- `platform` and the rclone `source` are typed enums on the wire. The TypeScript side lost
+  the `| string` that made the `source` union meaningless.
+- `src-tauri` is now the workspace root with `core` as a member: one lockfile covers both
+  crates and the standalone core test run no longer creates a second one.
+- `Remote::spec` and `AppState::find_remote` are removed (dead), and
+  `JobKind::requires_direction` has a caller.
+
+L17 (delivery summary): seven commits, one per work unit, each on its own branch stacked on
+the previous one, per the chain strategy the user chose:
+
+| Branch | Commit | Unit |
+| --- | --- | --- |
+| `fix/review-findings` | `5c7665e`, `eeef3a0` | remote identity |
+| `fix/extra-flags` | `3d68e5f` | extra rclone flags |
+| `fix/process-lifecycle` | `397937d` | process lifecycle |
+| `fix/remote-references` | `c793707` | buckets referenced by id |
+| `fix/validation-and-a11y` | `8b37719` | secret validation + accessibility |
+| `fix/cleanup` | `dbecbbc` | P3 cleanups |
+
+Total: 2137 authored lines, 7 commits, 10 files touched outside the UI, 5 UI files.
+Final state of the checks: core 76 unit + 5 + 6 integration tests, shell 9 tests, all green;
+clippy `-D warnings` clean on both crates; `cargo fmt --check` clean; `pnpm typecheck` and
+`pnpm build` green.
+
+L18 (known gap, not fixed): the frontend still has no test runner. The label association and
+the focus trap are verified by typecheck, build and static inspection only. Adding vitest
+means a new dependency and a new toolchain, which is a decision for the user.
