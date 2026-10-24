@@ -281,3 +281,43 @@ clippy `-D warnings` clean on both crates; `cargo fmt --check` clean; `pnpm type
 L18 (known gap, not fixed): the frontend still has no test runner. The label association and
 the focus trap are verified by typecheck, build and static inspection only. Adding vitest
 means a new dependency and a new toolchain, which is a decision for the user.
+
+L19 (independent verification and the native review):
+
+- The assess over `main..HEAD` returned tier `medium` with `reviewDue: false`. The change
+  touches a Task Size high-risk item (a persisted-format migration), so the assess was run
+  again with `escalate` on item 1, which raised the tier to `high` and added an independent
+  verifier to the plan.
+- The independent verifier found ONE blocker (B1): `validate::extra_flags` only looked at
+  the first token of a line, so `--transfers 8 --config /etc/rclone.conf` was accepted with
+  a green save and no explanation, and the flag was dropped later when the command line was
+  built. S3 says the config flag must be refused with an explanatory message. One
+  correction batch fixed it (the validation now scans every token), with a RED test first
+  (2 failed, 5 passed) and GREEN after. The re-verification confirmed B1 fixed and the
+  safety property intact, including the quoted-value shape (advisory A4) that is now
+  refused at validation. Commit `e105b09`.
+- The same correction promoted the verifier's probes to permanent regression tests: the
+  state migration (6 tests in `core/tests/state_migration.rs`), the config and state
+  agreement (3 tests), the rename (1 test) and the kill path (2 tests that spawn a real
+  child). The verifier's other findings were advisories: the SIGKILL escalation thread
+  dies with the app (pre-existing, rclone handles SIGTERM), the microsecond window between
+  the spawn and the pid registration (pre-existing), a secret read back from the config is
+  not re-validated (documented in L14), a name that does not match exactly is reported
+  instead of guessed (the safe behaviour S10 asks for), and the missing frontend test
+  runner (L18).
+- Native review: the lineage `review-685bfcd291740861` was created over `main..HEAD`
+  (28 paths, 2865 lines, tier high, lenses risk/resilience/readability/reliability) and is
+  in the `reviewing` state. The capture route refuses the provider-issued collect bindings
+  in every documented shape: the group with serialized strings, the group with the
+  `{collectBinding: ...}` objects, a single slot with the object and a single slot with the
+  string. The refusals are `collectBindings must be the complete distinct current reviewer
+  group in exact provider order` and `collectBinding is missing or stale for current
+  STATUS`, while the binding was copied verbatim from the current STATUS. Every attempt
+  reported `mutation_performed: false`, so nothing was mutated and no authority was
+  consumed; the lineage stays in `reviewing` and can be resumed.
+- The reviewer models are configured (`~/.pi/gentle-ai/models.json` holds the four lenses
+  plus `review-refuter` and `review-validator`), so this is not the relay configuration
+  cause recorded in L11.
+- The native review is an outside view and never replaces the tier's verification. That
+  verification is done: the independent verifier, the correction and its re-verification,
+  the full test suite and the spot check all passed.
